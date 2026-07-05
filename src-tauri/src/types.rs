@@ -182,6 +182,7 @@ pub enum SettlementStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettlementReceipt {
+    pub rail: Option<String>,
     pub status: SettlementStatus,
     pub reference: Option<String>,
     pub escrow_pda: Option<String>,
@@ -190,6 +191,13 @@ pub struct SettlementReceipt {
     pub explorer_url: Option<String>,
     pub triton_observed: Option<bool>,
     pub triton_slot: Option<u64>,
+    pub payment_url: Option<String>,
+    pub payment_reference: Option<String>,
+    pub payment_memo: Option<String>,
+    pub payment_signature: Option<String>,
+    pub payment_status: Option<String>,
+    pub payment_recipient: Option<String>,
+    pub payment_amount_sol: Option<f64>,
 }
 
 // Timeline entry for the proof/audit panel.

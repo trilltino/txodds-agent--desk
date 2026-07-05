@@ -20,6 +20,7 @@
     "@triton-one/yellowstone-grpc": "^4.0.2",
     "@vitejs/plugin-react": "^4.3.4",
     "bs58": "^6.0.0",
+    "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "^5.7.2",

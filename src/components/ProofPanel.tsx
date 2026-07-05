@@ -11,6 +11,11 @@ export function ProofPanel({ run }: { run?: AgentRun }) {
       </div>
       {!run ? <p className="muted">No run yet.</p> : (
         <>
+          <div className="receipt">
+            <span>Rail</span><strong>{run.settlement?.rail ?? '-'}</strong>
+            <span>Pay reference</span><code>{run.settlement?.paymentReference ?? '-'}</code>
+            <span>Pay signature</span><code>{run.settlement?.paymentSignature ?? '-'}</code>
+          </div>
           <ol className="timeline">
             {run.timeline.map((item, idx) => (
               <li key={`${item.label}-${idx}`}><strong>{item.label}</strong><span>{item.detail}</span></li>

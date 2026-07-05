@@ -82,6 +82,7 @@ pub fn run_round(trigger: TxLineEvent, track: TrackMode) -> AgentRun {
         );
 
         run.settlement = Some(SettlementReceipt {
+            rail: Some("mock".to_string()),
             status: SettlementStatus::NotStarted,
             reference: Some(format!("sha256:{sha256}")),
             escrow_pda: None,
@@ -90,6 +91,13 @@ pub fn run_round(trigger: TxLineEvent, track: TrackMode) -> AgentRun {
             explorer_url: Some("https://explorer.solana.com/?cluster=devnet".to_string()),
             triton_observed: Some(false),
             triton_slot: None,
+            payment_url: None,
+            payment_reference: None,
+            payment_memo: None,
+            payment_signature: None,
+            payment_status: None,
+            payment_recipient: None,
+            payment_amount_sol: None,
         });
         run.delivery = Some(delivery);
         run.verdict = Some(verdict);
@@ -144,6 +152,7 @@ fn empty_run(trigger: TxLineEvent, track: TrackMode) -> AgentRun {
         delivery: None,
         verdict: None,
         settlement: Some(SettlementReceipt {
+            rail: Some("mock".to_string()),
             status: SettlementStatus::NotStarted,
             reference: None,
             escrow_pda: None,
@@ -152,6 +161,13 @@ fn empty_run(trigger: TxLineEvent, track: TrackMode) -> AgentRun {
             explorer_url: None,
             triton_observed: Some(false),
             triton_slot: None,
+            payment_url: None,
+            payment_reference: None,
+            payment_memo: None,
+            payment_signature: None,
+            payment_status: None,
+            payment_recipient: None,
+            payment_amount_sol: None,
         }),
     }
 }

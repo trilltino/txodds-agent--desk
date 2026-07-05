@@ -27,6 +27,9 @@ pub struct AppConfig {
     pub triton_mainnet_token: Option<String>,
     pub triton_grpc_endpoint: Option<String>,
     pub triton_x_token: Option<String>,
+    pub solana_pay_recipient: Option<String>,
+    pub solana_pay_spl_token: Option<String>,
+    pub solana_pay_default_amount_sol: f64,
     pub watch_escrow_program_id: Option<String>,
     pub watch_market_program_id: Option<String>,
     pub watch_escrow_account: Option<String>,
@@ -58,6 +61,7 @@ pub struct PublicConfig {
     pub triton_devnet_configured: bool,
     pub triton_mainnet_configured: bool,
     pub yellowstone_configured: bool,
+    pub solana_pay_configured: bool,
     pub coralos_configured: bool,
     pub axum_enabled: bool,
 }
@@ -80,6 +84,9 @@ impl AppConfig {
             triton_mainnet_token: secret("TRITON_MAINNET_TOKEN", "triton_mainnet_token"),
             triton_grpc_endpoint: optional_env("TRITON_GRPC_ENDPOINT"),
             triton_x_token: secret("TRITON_X_TOKEN", "triton_x_token"),
+            solana_pay_recipient: optional_env("SOLANA_PAY_RECIPIENT"),
+            solana_pay_spl_token: optional_env("SOLANA_PAY_SPL_TOKEN"),
+            solana_pay_default_amount_sol: number_env("SOLANA_PAY_DEFAULT_AMOUNT_SOL", 0.001),
             watch_escrow_program_id: optional_env("WATCH_ESCROW_PROGRAM_ID"),
             watch_market_program_id: optional_env("WATCH_MARKET_PROGRAM_ID"),
             watch_escrow_account: optional_env("WATCH_ESCROW_ACCOUNT"),
@@ -112,6 +119,8 @@ impl AppConfig {
             triton_mainnet_configured: self.triton_pair_configured(Cluster::Mainnet),
             yellowstone_configured: self.triton_grpc_endpoint.is_some()
                 && self.triton_x_token.is_some(),
+            solana_pay_configured: self.solana_pay_recipient.is_some()
+                && self.solana_cluster.eq_ignore_ascii_case("devnet"),
             coralos_configured: self.coralos_settlement_enabled
                 && (self.coralos_bridge_url.is_some() || self.coralos_root.is_some()),
             axum_enabled: self.axum_enabled,

@@ -3,7 +3,7 @@
 A desktop command center that combines all three Superteam World Cup tracks in one coherent product:
 
 ```text
-TxLINE event -> Coral market round -> verifier/proof -> Solana settlement
+Live TxLINE event -> Coral market round -> verifier/proof -> Solana Pay intent
   -> Triton-observed chain state -> fan/trader/market UI
 ```
 
@@ -24,7 +24,7 @@ just setup
 just desktop
 ```
 
-With no credentials, the app runs against mock data. Add `TXLINE_GUEST_JWT` and `TXLINE_API_TOKEN` for live TxLINE calls.
+With `TXLINE_GUEST_JWT` and `TXLINE_API_TOKEN`, the native app starts live TxLINE odds and scores SSE streams from Rust. Without them, mock data is a visible fallback. Add `SOLANA_PAY_RECIPIENT` to generate devnet Solana Pay QR/payment intents after verifier pass.
 
 Common recipes:
 
@@ -55,6 +55,7 @@ The repo is organized around CoralOS-style boundaries:
 | `coral-agents/` | Coral agent manifests: buyer, sellers, verifier, settlement arbiter. |
 | `src-tauri/src/coral/` | Native Coral market, agent registry, and settlement sidecar bridge. |
 | `src-tauri/src/triton/` | Triton JSON-RPC and Yellowstone gRPC observation. |
+| `src-tauri/src/solana_pay/` | Devnet Solana Pay transfer requests, references, and payment intent verification. |
 | `src-tauri/src/txline/` | Native TxLINE live/mock/replay ingestion. |
 | `src-tauri/src/ledger/` | SQLite run ledger. |
 | `src/domain/coral/` | Browser-dev Coral market fallback, bidding, scoring, and agent registry. |
@@ -106,7 +107,7 @@ The sidecars run outside the webview. Tokens, keypairs, proxy credentials, and s
 - `watch_account`, `watch_program`, and `watch_reference` commands update live Yellowstone subscription filters from the desktop app.
 - `src-tauri/src/coral/market.rs` runs WANT -> BID -> AWARD -> DELIVERED -> VERIFIED.
 - `src-tauri/src/coral/settlement.rs` sends completed runs to `runtime/sidecars/coralos-bridge.mjs` over newline-delimited JSON.
-- `run_agent_round` attempts CoralOS settlement, emits `settle://receipt`, registers Yellowstone watches for the returned escrow/reference, observes through Triton RPC, and persists the run to SQLite.
+- `run_agent_round` creates a Solana Pay devnet Transfer Request after verifier pass, emits `pay://intent`, registers Yellowstone/Triton watches for the payment reference, optionally enriches through CoralOS, and persists the run/payment intent to SQLite.
 - The Windows installer bundles sidecar scripts, their Node module runtime dependencies, and `runtime/sidecars/bin/node.exe`; `NODE_BIN` can still override the bundled runtime.
 
 ## CoralOS Reference Map

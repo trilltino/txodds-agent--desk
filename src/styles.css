@@ -32,6 +32,10 @@ h2, h3 { margin: 0; }
 .event { width: 100%; text-align: left; background: #12172a; border: 1px solid #232a45; color: #f7f7fb; display: grid; gap: 5px; }
 .event.selected { border-color: #70e1c8; }
 .event span, .event small { color: #a8b1d8; }
+.statusStack { display: grid; gap: 6px; margin-top: 12px; }
+.statusLine { display: grid; grid-template-columns: 110px 1fr; gap: 10px; color: #a8b1d8; font-size: 12px; }
+.statusLine strong { color: #83ffd8; overflow-wrap: anywhere; }
+.emptyState { border: 1px dashed #2c3557; border-radius: 12px; padding: 16px; color: #a8b1d8; }
 /* Agent chips are constrained to avoid long manifest ids resizing the arena. */
 .agentRoster { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0 14px; }
 .agentChip { border: 1px solid #28304f; border-radius: 10px; background: #101525; padding: 9px 10px; display: grid; gap: 3px; min-width: 0; }
@@ -47,6 +51,9 @@ h2, h3 { margin: 0; }
    inside cards. */
 .receipt { display: grid; grid-template-columns: 130px 1fr; gap: 10px; margin-top: 16px; }
 code, pre { color: #c9fff2; background: #090c18; border: 1px solid #26304f; border-radius: 10px; padding: 8px; white-space: pre-wrap; word-break: break-word; }
+.payGrid { display: grid; grid-template-columns: 180px 1fr; gap: 16px; align-items: start; margin-top: 16px; }
+.qrBox { width: 180px; min-height: 180px; display: grid; place-items: center; background: #ffffff; border-radius: 8px; padding: 10px; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
 .timeline { display: grid; gap: 8px; padding-left: 18px; }
 .timeline li { display: grid; gap: 3px; color: #b8c0e9; }
 .timeline strong { color: #fff; }
@@ -64,4 +71,4 @@ code, pre { color: #c9fff2; background: #090c18; border: 1px solid #26304f; bord
 .chainPill.down { color: #ff9b9b; }
 .chainPill.down .dot { background: #f87171; }
 /* Single-column layout keeps every panel readable in narrower Tauri windows. */
-@media (max-width: 900px) { .grid.two { grid-template-columns: 1fr; } .hero { flex-direction: column; align-items: flex-start; } }
+@media (max-width: 900px) { .grid.two, .payGrid { grid-template-columns: 1fr; } .hero { flex-direction: column; align-items: flex-start; } }

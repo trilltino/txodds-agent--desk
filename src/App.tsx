@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AgentRun, CoralAgentManifest, TrackMode, TxLineEvent } from './types'
+import type { AgentRun, CoralAgentManifest, IngestStatus, TrackMode, TxLineEvent } from './types'
 import { mockEvents } from './domain/txline/mock'
 import { runLocalAgentRound } from './domain/coral/localRound'
 import { fallbackCoralAgents, loadCoralAgents } from './domain/coral/agents'
-import { getConfig, listRunsNative, native, onTxLineEvent, runAgentRoundNative, startTxLine, stopTxLine } from './desktop/transport'
+import { getConfig, listRunsNative, native, onIngestStatus, onTxLineEvent, runAgentRoundNative, startTxLine, stopTxLine } from './desktop/transport'
 import { Shell } from './components/Shell'
 import { LiveFeed } from './components/LiveFeed'
 import { AgentArena } from './components/AgentArena'
@@ -23,6 +23,9 @@ export default function App() {
   // Rust to emit txline://event so credentials never enter the webview.
   const [events, setEvents] = useState<TxLineEvent[]>(native ? [] : mockEvents)
   const [selectedEvent, setSelectedEvent] = useState<TxLineEvent>(mockEvents[0])
+  const [ingestStatuses, setIngestStatuses] = useState<IngestStatus[]>(
+    native ? [] : [{ source: 'mock', state: 'connected', detail: 'Browser mock TxLINE fallback active' }]
+  )
   // Runs are newest-first because all panels render the current run by default.
   const [runs, setRuns] = useState<AgentRun[]>([])
   const [agents, setAgents] = useState<CoralAgentManifest[]>(fallbackCoralAgents)
@@ -40,6 +43,9 @@ export default function App() {
       setEvents((prev) => [event, ...prev.filter((item) => item.id !== event.id)].slice(0, 50))
       setSelectedEvent((prev) => prev ?? event)
     })
+    const offIngestStatus = onIngestStatus((status) => {
+      setIngestStatuses((prev) => [status, ...prev.filter((item) => item.source !== status.source)].slice(0, 6))
+    })
 
     // Restore durable run history from SQLite, then let Rust decide whether it
     // can use live TxLINE credentials or should fall back to mock mode.
@@ -50,6 +56,7 @@ export default function App() {
 
     return () => {
       offTxLine()
+      offIngestStatus()
       void stopTxLine()
     }
   }, [])
@@ -67,7 +74,7 @@ export default function App() {
   return (
     <Shell track={track} setTrack={setTrack} onStart={() => startRound()}>
       <section className="grid two">
-        <LiveFeed events={events} selected={selectedEvent} onSelect={setSelectedEvent} onStartRound={startRound} />
+        <LiveFeed events={events} selected={selectedEvent} ingestStatuses={ingestStatuses} onSelect={setSelectedEvent} onStartRound={startRound} />
         <AgentArena agents={agents} track={track} run={currentRun} onRun={() => startRound()} />
       </section>
       <section className="grid two">

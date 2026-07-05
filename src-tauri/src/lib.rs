@@ -8,6 +8,7 @@ mod config;
 mod coral;
 mod error;
 mod ledger;
+mod solana_pay;
 mod triton;
 mod txline;
 mod types;
@@ -25,9 +26,10 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::config::{AppConfig, PublicConfig};
 use crate::error::AppError;
 use crate::ledger::LedgerStore;
+use crate::solana_pay::SolanaPayIntent;
 use crate::types::{
-    now_iso, AgentRun, ChainStatus, Cluster, MarketRoundEvent, TrackMode, TritonObservation,
-    TxLineEvent,
+    now_iso, AgentRun, ChainStatus, Cluster, MarketRoundEvent, SettlementReceipt, TrackMode,
+    TritonObservation, TxLineEvent, VerdictStatus,
 };
 
 struct DesktopState {
@@ -228,6 +230,40 @@ async fn run_agent_round(
     // and chain observation enrich it afterwards.
     let mut run = coral::market::run_round(trigger, track);
 
+    if verifier_passed(&run) {
+        match solana_pay::create_intent(&state.config, &run) {
+            Ok(intent) => {
+                if let Some(yellowstone) = &state.yellowstone {
+                    yellowstone.watch_reference(intent.reference.clone());
+                }
+                merge_receipt(&mut run, solana_pay::receipt_from_intent(&intent));
+                coral::market::append_timeline(
+                    &mut run,
+                    "SOLANA_PAY",
+                    format!(
+                        "created devnet transfer request for {} SOL with reference {}",
+                        intent.amount_sol, intent.reference
+                    ),
+                );
+                {
+                    let ledger = state
+                        .ledger
+                        .lock()
+                        .map_err(|_| AppError::Task("ledger lock poisoned".to_string()))?;
+                    ledger.upsert_payment_intent(&intent)?;
+                }
+                let _ = app.emit("pay://intent", &intent);
+            }
+            Err(err) => {
+                coral::market::append_timeline(
+                    &mut run,
+                    "SOLANA_PAY",
+                    format!("payment intent unavailable: {err}"),
+                );
+            }
+        }
+    }
+
     if let Some(reference) = run
         .settlement
         .as_ref()
@@ -241,22 +277,27 @@ async fn run_agent_round(
             Ok(receipt) => {
                 // Settlement success updates both the run timeline and live UI
                 // event stream. The webview sees receipts, not secrets.
-                let detail = format!(
-                    "CoralOS sidecar settled reference {}",
-                    receipt
-                        .reference
-                        .clone()
-                        .unwrap_or_else(|| reference.clone())
-                );
-                run.settlement = Some(receipt.clone());
+                let settled_reference = receipt
+                    .reference
+                    .clone()
+                    .or_else(|| {
+                        run.settlement
+                            .as_ref()
+                            .and_then(|settlement| settlement.reference.clone())
+                    })
+                    .unwrap_or_else(|| reference.clone());
+                let detail = format!("CoralOS sidecar settled reference {}", settled_reference);
+                merge_receipt(&mut run, receipt);
                 coral::market::append_timeline(&mut run, "CORALOS", detail);
-                let _ = app.emit("settle://receipt", &receipt);
-                if let Some(yellowstone) = &state.yellowstone {
-                    if let Some(account) = receipt.escrow_pda.clone() {
-                        yellowstone.watch_account(account);
-                    }
-                    if let Some(reference) = receipt.reference.clone() {
-                        yellowstone.watch_reference(reference);
+                if let Some(receipt) = run.settlement.as_ref() {
+                    let _ = app.emit("settle://receipt", receipt);
+                    if let Some(yellowstone) = &state.yellowstone {
+                        if let Some(account) = receipt.escrow_pda.clone() {
+                            yellowstone.watch_account(account);
+                        }
+                        if let Some(reference) = receipt.reference.clone() {
+                            yellowstone.watch_reference(reference);
+                        }
                     }
                 }
             }
@@ -268,6 +309,53 @@ async fn run_agent_round(
                     "CORALOS",
                     format!("sidecar settlement unavailable: {err}"),
                 );
+            }
+        }
+
+        if let Some(payment_reference) = run
+            .settlement
+            .as_ref()
+            .and_then(|settlement| settlement.payment_reference.clone())
+        {
+            let intent = {
+                let ledger = state
+                    .ledger
+                    .lock()
+                    .map_err(|_| AppError::Task("ledger lock poisoned".to_string()))?;
+                ledger
+                    .get_payment_intent_by_reference(&payment_reference)
+                    .ok()
+            };
+            if let Some(intent) = intent {
+                match solana_pay::verify_intent(&state.client, &state.config, intent).await {
+                    Ok(updated) => {
+                        merge_receipt(&mut run, solana_pay::receipt_from_intent(&updated));
+                        {
+                            let ledger = state
+                                .ledger
+                                .lock()
+                                .map_err(|_| AppError::Task("ledger lock poisoned".to_string()))?;
+                            ledger.upsert_payment_intent(&updated)?;
+                        }
+                        coral::market::append_timeline(
+                            &mut run,
+                            "SOLANA_PAY",
+                            format!(
+                                "{} payment reference {}",
+                                updated.status_text(),
+                                updated.reference
+                            ),
+                        );
+                        let _ = app.emit("pay://status", &updated);
+                    }
+                    Err(err) => {
+                        coral::market::append_timeline(
+                            &mut run,
+                            "SOLANA_PAY",
+                            format!("payment reference verification unavailable: {err}"),
+                        );
+                    }
+                }
             }
         }
 
@@ -292,7 +380,9 @@ async fn run_agent_round(
                 // Triton observation turns a local reference into a chain-stamped
                 // proof panel entry.
                 if let Some(settlement) = run.settlement.as_mut() {
-                    settlement.triton_observed = Some(true);
+                    settlement.triton_observed = Some(
+                        observation.signature.is_some() || settlement.payment_signature.is_some(),
+                    );
                     settlement.triton_slot = observation.slot;
                     settlement.explorer_url = observation.slot.map(|slot| {
                         format!("https://explorer.solana.com/block/{slot}?cluster=devnet")
@@ -373,6 +463,102 @@ fn get_run(run_id: String, state: State<'_, DesktopState>) -> Result<AgentRun, A
         .lock()
         .map_err(|_| AppError::Task("ledger lock poisoned".to_string()))?;
     ledger.get_run(&run_id)
+}
+
+#[tauri::command]
+fn create_solana_pay_intent(
+    run_id: String,
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<SolanaPayIntent, AppError> {
+    let mut run = {
+        let ledger = state
+            .ledger
+            .lock()
+            .map_err(|_| AppError::Task("ledger lock poisoned".to_string()))?;
+        ledger.get_run(&run_id)?
+    };
+
+    if !verifier_passed(&run) {
+        return Err(AppError::InvalidInput(
+            "verifier must pass before Solana Pay intent creation".to_string(),
+        ));
+    }
+
+    let intent = solana_pay::create_intent(&state.config, &run)?;
+    let receipt = solana_pay::receipt_from_intent(&intent);
+    merge_receipt(&mut run, receipt);
+    coral::market::append_timeline(
+        &mut run,
+        "SOLANA_PAY",
+        format!("created devnet transfer request {}", intent.reference),
+    );
+
+    {
+        let ledger = state
+            .ledger
+            .lock()
+            .map_err(|_| AppError::Task("ledger lock poisoned".to_string()))?;
+        ledger.upsert_payment_intent(&intent)?;
+        ledger.upsert_run(&run)?;
+    }
+
+    let _ = app.emit("pay://intent", &intent);
+    if let Some(settlement) = run.settlement.as_ref() {
+        let _ = app.emit("settle://receipt", settlement);
+    }
+    Ok(intent)
+}
+
+#[tauri::command]
+async fn verify_solana_pay_intent(
+    reference: String,
+    app: AppHandle,
+    state: State<'_, DesktopState>,
+) -> Result<SolanaPayIntent, AppError> {
+    let intent = {
+        let ledger = state
+            .ledger
+            .lock()
+            .map_err(|_| AppError::Task("ledger lock poisoned".to_string()))?;
+        ledger.get_payment_intent_by_reference(&reference)?
+    };
+    let updated = solana_pay::verify_intent(&state.client, &state.config, intent).await?;
+
+    {
+        let ledger = state
+            .ledger
+            .lock()
+            .map_err(|_| AppError::Task("ledger lock poisoned".to_string()))?;
+        ledger.upsert_payment_intent(&updated)?;
+        if let Ok(mut run) = ledger.get_run(&updated.run_id) {
+            merge_receipt(&mut run, solana_pay::receipt_from_intent(&updated));
+            coral::market::append_timeline(
+                &mut run,
+                "SOLANA_PAY",
+                format!("{} reference {}", updated.status_text(), updated.reference),
+            );
+            ledger.upsert_run(&run)?;
+            if let Some(settlement) = run.settlement.as_ref() {
+                let _ = app.emit("settle://receipt", settlement);
+            }
+        }
+    }
+
+    let _ = app.emit("pay://status", &updated);
+    Ok(updated)
+}
+
+#[tauri::command]
+fn list_payment_intents(
+    run_id: Option<String>,
+    state: State<'_, DesktopState>,
+) -> Result<Vec<SolanaPayIntent>, AppError> {
+    let ledger = state
+        .ledger
+        .lock()
+        .map_err(|_| AppError::Task("ledger lock poisoned".to_string()))?;
+    ledger.list_payment_intents(run_id.as_deref())
 }
 
 #[tauri::command]
@@ -522,6 +708,9 @@ pub fn run() {
             run_agent_round,
             list_runs,
             get_run,
+            create_solana_pay_intent,
+            verify_solana_pay_intent,
+            list_payment_intents,
             fetch_txline,
             export_fan_card,
             yellowstone_status
@@ -535,6 +724,66 @@ fn sha256_hex(text: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
     hex::encode(hasher.finalize())
+}
+
+fn verifier_passed(run: &AgentRun) -> bool {
+    run.verdict
+        .as_ref()
+        .map(|verdict| matches!(verdict.status, VerdictStatus::Pass))
+        .unwrap_or(false)
+}
+
+fn merge_receipt(run: &mut AgentRun, mut incoming: SettlementReceipt) {
+    if let Some(existing) = run.settlement.take() {
+        let keep_primary_payment_rail =
+            existing.payment_url.is_some() && incoming.payment_url.is_none();
+        if keep_primary_payment_rail || incoming.rail.is_none() {
+            incoming.rail = existing.rail;
+        }
+        if incoming.reference.is_none() {
+            incoming.reference = existing.reference;
+        }
+        if incoming.escrow_pda.is_none() {
+            incoming.escrow_pda = existing.escrow_pda;
+        }
+        if incoming.deposit_tx.is_none() {
+            incoming.deposit_tx = existing.deposit_tx;
+        }
+        if incoming.release_tx.is_none() {
+            incoming.release_tx = existing.release_tx;
+        }
+        if incoming.explorer_url.is_none() {
+            incoming.explorer_url = existing.explorer_url;
+        }
+        if incoming.triton_observed.is_none() {
+            incoming.triton_observed = existing.triton_observed;
+        }
+        if incoming.triton_slot.is_none() {
+            incoming.triton_slot = existing.triton_slot;
+        }
+        if incoming.payment_url.is_none() {
+            incoming.payment_url = existing.payment_url;
+        }
+        if incoming.payment_reference.is_none() {
+            incoming.payment_reference = existing.payment_reference;
+        }
+        if incoming.payment_memo.is_none() {
+            incoming.payment_memo = existing.payment_memo;
+        }
+        if incoming.payment_signature.is_none() {
+            incoming.payment_signature = existing.payment_signature;
+        }
+        if incoming.payment_status.is_none() {
+            incoming.payment_status = existing.payment_status;
+        }
+        if incoming.payment_recipient.is_none() {
+            incoming.payment_recipient = existing.payment_recipient;
+        }
+        if incoming.payment_amount_sol.is_none() {
+            incoming.payment_amount_sol = existing.payment_amount_sol;
+        }
+    }
+    run.settlement = Some(incoming);
 }
 
 fn resolve_sidecar_path(app: &tauri::App, config: &AppConfig) -> PathBuf {

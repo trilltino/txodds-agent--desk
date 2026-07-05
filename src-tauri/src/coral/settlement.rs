@@ -129,6 +129,7 @@ impl SidecarResponse {
             SettlementStatus::NotStarted
         };
         SettlementReceipt {
+            rail: Some("coralos".to_string()),
             status,
             reference: self.reference,
             escrow_pda: self.escrow_pda,
@@ -137,6 +138,13 @@ impl SidecarResponse {
             explorer_url: self.explorer_url,
             triton_observed: Some(false),
             triton_slot: None,
+            payment_url: None,
+            payment_reference: None,
+            payment_memo: None,
+            payment_signature: None,
+            payment_status: None,
+            payment_recipient: None,
+            payment_amount_sol: None,
         }
     }
 }

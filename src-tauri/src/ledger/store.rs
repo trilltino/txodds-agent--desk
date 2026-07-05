@@ -8,6 +8,7 @@ use std::path::Path;
 use rusqlite::{params, Connection};
 
 use crate::error::AppError;
+use crate::solana_pay::SolanaPayIntent;
 use crate::types::AgentRun;
 
 pub struct LedgerStore {
@@ -33,6 +34,15 @@ impl LedgerStore {
                 trigger_json TEXT NOT NULL,
                 run_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS payment_intents (
+                reference TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                intent_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             );
             ",
         )?;
@@ -101,5 +111,71 @@ impl LedgerStore {
                 other => AppError::Sql(other),
             })?;
         Ok(serde_json::from_str(&run_json)?)
+    }
+
+    pub fn upsert_payment_intent(&self, intent: &SolanaPayIntent) -> Result<(), AppError> {
+        let intent_json = serde_json::to_string(intent)?;
+        self.conn.execute(
+            "
+            INSERT INTO payment_intents (reference, run_id, intent_json, status, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ON CONFLICT(reference) DO UPDATE SET
+                intent_json = excluded.intent_json,
+                status = excluded.status,
+                updated_at = excluded.updated_at
+            ",
+            params![
+                &intent.reference,
+                &intent.run_id,
+                intent_json,
+                intent.status_text(),
+                &intent.created_at,
+                crate::types::now_iso()
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_payment_intents(
+        &self,
+        run_id: Option<&str>,
+    ) -> Result<Vec<SolanaPayIntent>, AppError> {
+        let mut intents = Vec::new();
+        if let Some(run_id) = run_id {
+            let mut stmt = self.conn.prepare(
+                "SELECT intent_json FROM payment_intents WHERE run_id = ?1 ORDER BY created_at DESC",
+            )?;
+            let rows = stmt.query_map(params![run_id], |row| row.get::<_, String>(0))?;
+            for row in rows {
+                intents.push(serde_json::from_str::<SolanaPayIntent>(&row?)?);
+            }
+        } else {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT intent_json FROM payment_intents ORDER BY created_at DESC")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            for row in rows {
+                intents.push(serde_json::from_str::<SolanaPayIntent>(&row?)?);
+            }
+        }
+        Ok(intents)
+    }
+
+    pub fn get_payment_intent_by_reference(
+        &self,
+        reference: &str,
+    ) -> Result<SolanaPayIntent, AppError> {
+        let intent_json: String = self
+            .conn
+            .query_row(
+                "SELECT intent_json FROM payment_intents WHERE reference = ?1",
+                params![reference],
+                |row| row.get(0),
+            )
+            .map_err(|err| match err {
+                rusqlite::Error::QueryReturnedNoRows => AppError::NotFound(reference.to_string()),
+                other => AppError::Sql(other),
+            })?;
+        Ok(serde_json::from_str(&intent_json)?)
     }
 }

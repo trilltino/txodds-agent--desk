@@ -1,6 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { AgentRun, CoralAgentManifest, TrackMode, TxLineEvent } from '../types'
+import type { AgentRun, CoralAgentManifest, IngestStatus, SolanaPayIntent, TrackMode, TxLineEvent } from '../types'
 import type { ChainStatus, Cluster, TritonObservation } from '../domain/triton/client'
 
 // Runtime feature flag used by domain helpers to choose Tauri IPC in desktop
@@ -13,11 +13,14 @@ export interface PublicConfig {
   txlineApiOrigin: string
   txlineNetwork: string
   solanaCluster: string
+  oddsMoveTriggerPct: number
+  maxDevnetSpendSol: number
   txlineConfigured: boolean
   tritonConfigured: boolean
   tritonDevnetConfigured: boolean
   tritonMainnetConfigured: boolean
   yellowstoneConfigured: boolean
+  solanaPayConfigured: boolean
   coralosConfigured: boolean
   axumEnabled: boolean
 }
@@ -74,6 +77,18 @@ export async function listRunsNative(): Promise<AgentRun[]> {
   return command<AgentRun[]>('list_runs')
 }
 
+export async function createSolanaPayIntentNative(runId: string): Promise<SolanaPayIntent> {
+  return command<SolanaPayIntent>('create_solana_pay_intent', { runId })
+}
+
+export async function verifySolanaPayIntentNative(reference: string): Promise<SolanaPayIntent> {
+  return command<SolanaPayIntent>('verify_solana_pay_intent', { reference })
+}
+
+export async function listPaymentIntentsNative(runId?: string): Promise<SolanaPayIntent[]> {
+  return command<SolanaPayIntent[]>('list_payment_intents', { runId })
+}
+
 export async function exportFanCardNative(runId: string): Promise<ExportResult> {
   return command<ExportResult>('export_fan_card', { runId })
 }
@@ -112,4 +127,7 @@ export function onNativeEvent<T>(event: string, cb: (payload: T) => void): () =>
 }
 
 export const onTxLineEvent = (cb: (event: TxLineEvent) => void) => onNativeEvent<TxLineEvent>('txline://event', cb)
+export const onIngestStatus = (cb: (status: IngestStatus) => void) => onNativeEvent<IngestStatus>('ingest://status', cb)
+export const onSolanaPayIntent = (cb: (intent: SolanaPayIntent) => void) => onNativeEvent<SolanaPayIntent>('pay://intent', cb)
+export const onSolanaPayStatus = (cb: (intent: SolanaPayIntent) => void) => onNativeEvent<SolanaPayIntent>('pay://status', cb)
 export const onChainSlot = (cb: (status: ChainStatus) => void) => onNativeEvent<ChainStatus>('chain://slot', cb)

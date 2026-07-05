@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::AsyncWriteExt;
 
 use crate::config::AppConfig;
-use crate::types::{mock_events, now_iso, TxLineEvent, TxLineEventKind};
+use crate::types::{mock_events, now_iso, OddsQuote, Score, TxLineEvent, TxLineEventKind};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -87,40 +87,89 @@ async fn replay_loop(app: AppHandle, replay_dir: PathBuf, fixture_id: Option<Str
 }
 
 async fn live_loop(app: AppHandle, client: Client, config: AppConfig, replay_dir: PathBuf) {
-    // Missing credentials degrade to mock mode rather than leaving the UI empty.
-    let Some(jwt) = config.txline_guest_jwt.as_deref() else {
+    let Some(jwt) = config.txline_guest_jwt.clone() else {
         emit_status(
             &app,
             "live",
-            "reconnecting",
-            "TXLINE_GUEST_JWT missing; using mock stream",
+            "credentials_required",
+            "TXLINE_GUEST_JWT missing; live TxLINE cannot start",
         );
-        mock_loop(app).await;
         return;
     };
-    let Some(token) = config.txline_api_token.as_deref() else {
+    let Some(token) = config.txline_api_token.clone() else {
         emit_status(
             &app,
             "live",
-            "reconnecting",
-            "TXLINE_API_TOKEN missing; using mock stream",
+            "credentials_required",
+            "TXLINE_API_TOKEN missing; live TxLINE cannot start",
         );
-        mock_loop(app).await;
         return;
     };
 
+    let origin = config.txline_api_origin.trim_end_matches('/').to_string();
     emit_status(
         &app,
         "live",
-        "connected",
-        "Rust TxLINE SSE client connecting",
+        "connecting",
+        "Rust TxLINE SSE clients starting odds and scores streams",
     );
-    // Current live integration reads the odds stream; score/proof streams can be
-    // added as parallel loops later.
-    let stream_url = format!(
-        "{}/api/odds/stream",
-        config.txline_api_origin.trim_end_matches('/')
+
+    let odds = live_stream_loop(
+        app.clone(),
+        client.clone(),
+        replay_dir.clone(),
+        origin.clone(),
+        jwt.clone(),
+        token.clone(),
+        "odds",
     );
+    let scores = live_stream_loop(app, client, replay_dir, origin, jwt, token, "scores");
+    tokio::join!(odds, scores);
+}
+
+async fn live_stream_loop(
+    app: AppHandle,
+    client: Client,
+    replay_dir: PathBuf,
+    origin: String,
+    jwt: String,
+    token: String,
+    stream: &'static str,
+) {
+    let mut attempt = 0_u64;
+    loop {
+        attempt = attempt.saturating_add(1);
+        let source = format!("live:{stream}");
+        emit_status(
+            &app,
+            &source,
+            "connecting",
+            &format!("connecting to TxLINE {stream} SSE attempt {attempt}"),
+        );
+        match connect_sse_once(&app, &client, &replay_dir, &origin, &jwt, &token, stream).await {
+            Ok(()) => emit_status(
+                &app,
+                &source,
+                "reconnecting",
+                &format!("TxLINE {stream} stream ended; reconnecting"),
+            ),
+            Err(err) => emit_status(&app, &source, "reconnecting", &err),
+        }
+        let backoff_secs = attempt.min(30).max(1);
+        tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+    }
+}
+
+async fn connect_sse_once(
+    app: &AppHandle,
+    client: &Client,
+    replay_dir: &Path,
+    origin: &str,
+    jwt: &str,
+    token: &str,
+    stream: &'static str,
+) -> Result<(), String> {
+    let stream_url = format!("{}/api/{stream}/stream", origin);
     let response = match client
         .get(stream_url)
         .bearer_auth(jwt)
@@ -132,77 +181,211 @@ async fn live_loop(app: AppHandle, client: Client, config: AppConfig, replay_dir
     {
         Ok(response) => response,
         Err(err) => {
-            emit_status(&app, "live", "reconnecting", &err.to_string());
-            return;
+            return Err(format!("TxLINE {stream} SSE connection failed: {err}"));
         }
     };
 
     if !response.status().is_success() {
-        emit_status(
-            &app,
-            "live",
-            "reconnecting",
-            &format!("TxLINE SSE HTTP {}", response.status()),
-        );
-        return;
+        return Err(format!("TxLINE {stream} SSE HTTP {}", response.status()));
     }
 
+    emit_status(
+        app,
+        &format!("live:{stream}"),
+        "connected",
+        &format!("TxLINE {stream} SSE connected"),
+    );
     let mut buffer = String::new();
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
+    let mut byte_stream = response.bytes_stream();
+    while let Some(chunk) = byte_stream.next().await {
         let Ok(chunk) = chunk else {
-            emit_status(&app, "live", "reconnecting", "TxLINE stream chunk failed");
-            break;
+            return Err("TxLINE stream chunk failed".to_string());
         };
         buffer.push_str(&String::from_utf8_lossy(&chunk));
-        // SSE frames are separated by a blank line. Buffering protects against
-        // chunk boundaries splitting a JSON payload.
-        while let Some(index) = buffer.find("\n\n") {
+        while let Some((index, delimiter_len)) = find_sse_separator(&buffer) {
             let block = buffer[..index].to_string();
-            buffer = buffer[index + 2..].to_string();
-            if let Some(event) = parse_sse_block("odds", &block) {
-                append_replay(&replay_dir, &event).await;
-                emit_event(&app, event);
+            buffer = buffer[index + delimiter_len..].to_string();
+            if let Some(event) = parse_sse_block(stream, &block) {
+                append_replay(replay_dir, &event).await;
+                emit_event(app, event);
             }
         }
     }
-    emit_status(&app, "live", "stopped", "TxLINE live stream ended");
+    Ok(())
 }
 
 fn parse_sse_block(stream: &str, block: &str) -> Option<TxLineEvent> {
-    // Only `data:` lines are converted; retry/id/event fields can be added when
-    // the upstream stream requires them.
-    let data_line = block
-        .lines()
-        .find(|line| line.trim_start().starts_with("data:"))?;
-    let payload = data_line
-        .trim_start()
-        .strip_prefix("data:")
-        .unwrap_or(data_line)
-        .trim();
-    let raw = serde_json::from_str::<Value>(payload).ok()?;
-    // Keep raw payload for diagnostics while normalizing the stable fields used
-    // by the market engine.
-    let fixture_id = raw
-        .get("fixtureId")
-        .or_else(|| raw.get("id"))
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
+    let mut data_lines = Vec::new();
+    let mut sse_event: Option<String> = None;
+    let mut sse_id: Option<String> = None;
+
+    for line in block.lines() {
+        let line = line.trim_start();
+        if let Some(data) = line.strip_prefix("data:") {
+            data_lines.push(data.trim_start().to_string());
+        } else if let Some(event) = line.strip_prefix("event:") {
+            sse_event = Some(event.trim().to_string());
+        } else if let Some(id) = line.strip_prefix("id:") {
+            sse_id = Some(id.trim().to_string());
+        }
+    }
+
+    let payload = data_lines.join("\n");
+    if payload.trim().is_empty() || payload.trim() == "[DONE]" {
+        return None;
+    }
+    let raw = serde_json::from_str::<Value>(&payload).ok()?;
+    let fixture_id = extract_u64(
+        &raw,
+        &[
+            "fixtureId",
+            "fixture_id",
+            "fixture",
+            "matchId",
+            "gameId",
+            "id",
+        ],
+    )
+    .unwrap_or(0);
+    let title = extract_string(&raw, &["title", "headline", "event", "type"])
+        .or(sse_event)
+        .unwrap_or_else(|| format!("{stream} update"));
+    let body = extract_string(&raw, &["body", "message", "description", "summary"])
+        .unwrap_or_else(|| "Live TxLINE SSE event received by Rust".to_string());
+    let odds = (stream == "odds")
+        .then(|| parse_odds(&raw, fixture_id))
+        .flatten();
+    let score = (stream == "scores").then(|| parse_score(&raw)).flatten();
+    let kind = event_kind(stream, &title, &raw);
+
     Some(TxLineEvent {
-        id: format!("{stream}-{}", uuid::Uuid::new_v4()),
-        kind: if stream == "odds" {
-            TxLineEventKind::OddsUpdate
-        } else {
-            TxLineEventKind::ScoreUpdate
-        },
+        id: sse_id.unwrap_or_else(|| {
+            extract_string(&raw, &["eventId", "event_id", "uuid"])
+                .unwrap_or_else(|| format!("{stream}-{}", uuid::Uuid::new_v4()))
+        }),
+        kind,
         fixture_id,
-        title: format!("{stream} update"),
-        body: "Live TxLINE SSE event received by Rust".to_string(),
+        title,
+        body,
         ts: now_iso(),
         raw: Some(raw),
-        odds: None,
-        score: None,
+        odds,
+        score,
         proof: None,
+    })
+}
+
+fn find_sse_separator(buffer: &str) -> Option<(usize, usize)> {
+    let lf = buffer.find("\n\n").map(|index| (index, 2));
+    let crlf = buffer.find("\r\n\r\n").map(|index| (index, 4));
+    match (lf, crlf) {
+        (Some(a), Some(b)) => Some(if a.0 < b.0 { a } else { b }),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    }
+}
+
+fn event_kind(stream: &str, title: &str, raw: &Value) -> TxLineEventKind {
+    let needle = format!(
+        "{} {}",
+        title.to_ascii_lowercase(),
+        extract_string(raw, &["kind", "eventType", "event_type", "status"])
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+    );
+    if needle.contains("goal") {
+        TxLineEventKind::Goal
+    } else if needle.contains("red_card") || needle.contains("red card") {
+        TxLineEventKind::RedCard
+    } else if needle.contains("final") {
+        TxLineEventKind::FinalWhistle
+    } else if stream == "odds" {
+        TxLineEventKind::OddsUpdate
+    } else {
+        TxLineEventKind::ScoreUpdate
+    }
+}
+
+fn parse_odds(raw: &Value, fixture_id: u64) -> Option<Vec<OddsQuote>> {
+    let values = raw
+        .as_array()
+        .cloned()
+        .or_else(|| raw.get("odds").and_then(Value::as_array).cloned())
+        .or_else(|| raw.get("quotes").and_then(Value::as_array).cloned())
+        .or_else(|| raw.get("markets").and_then(Value::as_array).cloned())?;
+
+    let quotes = values
+        .iter()
+        .filter_map(|item| {
+            let decimal = extract_f64(item, &["decimal", "price", "odds"])?;
+            if decimal <= 1.0 {
+                return None;
+            }
+            Some(OddsQuote {
+                fixture_id: extract_u64(item, &["fixtureId", "fixture_id"]).unwrap_or(fixture_id),
+                outcome: extract_string(item, &["outcome", "selection", "name", "side"])
+                    .unwrap_or_else(|| "unknown".to_string()),
+                decimal,
+                implied_probability: 1.0 / decimal,
+                source: extract_string(item, &["source", "book", "bookmaker"]),
+                ts: extract_string(item, &["ts", "timestamp"]).unwrap_or_else(now_iso),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    (!quotes.is_empty()).then_some(quotes)
+}
+
+fn parse_score(raw: &Value) -> Option<Score> {
+    if let Some(score) = raw.get("score") {
+        if let Some(parsed) = parse_score_object(score) {
+            return Some(parsed);
+        }
+    }
+    parse_score_object(raw)
+}
+
+fn parse_score_object(value: &Value) -> Option<Score> {
+    let home = extract_i64(value, &["home", "homeScore", "home_score", "homeGoals"])?;
+    let away = extract_i64(value, &["away", "awayScore", "away_score", "awayGoals"])?;
+    Some(Score { home, away })
+}
+
+fn extract_string(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .map(ToString::to_string)
+    })
+}
+
+fn extract_u64(value: &Value, keys: &[&str]) -> Option<u64> {
+    keys.iter().find_map(|key| {
+        value.get(*key).and_then(|item| {
+            item.as_u64()
+                .or_else(|| item.as_str().and_then(|text| text.parse::<u64>().ok()))
+        })
+    })
+}
+
+fn extract_i64(value: &Value, keys: &[&str]) -> Option<i64> {
+    keys.iter().find_map(|key| {
+        value.get(*key).and_then(|item| {
+            item.as_i64()
+                .or_else(|| item.as_str().and_then(|text| text.parse::<i64>().ok()))
+        })
+    })
+}
+
+fn extract_f64(value: &Value, keys: &[&str]) -> Option<f64> {
+    keys.iter().find_map(|key| {
+        value.get(*key).and_then(|item| {
+            item.as_f64()
+                .or_else(|| item.as_str().and_then(|text| text.parse::<f64>().ok()))
+        })
     })
 }
 
@@ -212,7 +395,17 @@ async fn append_replay(replay_dir: &Path, event: &TxLineEvent) {
     if tokio::fs::create_dir_all(replay_dir).await.is_err() {
         return;
     }
-    let path = replay_dir.join("default.jsonl");
+    append_replay_file(replay_dir.join("default.jsonl"), event).await;
+    if event.fixture_id > 0 {
+        append_replay_file(
+            replay_dir.join(format!("{}.jsonl", event.fixture_id)),
+            event,
+        )
+        .await;
+    }
+}
+
+async fn append_replay_file(path: PathBuf, event: &TxLineEvent) {
     let Ok(mut file) = tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
