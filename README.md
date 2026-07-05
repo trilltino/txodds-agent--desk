@@ -101,6 +101,15 @@ CORALOS_SETTLEMENT_ENABLED=1
 
 The sidecars run outside the webview. Tokens, keypairs, proxy credentials, and settlement operations stay in Rust/Node backend processes.
 
+## TxLINE API Wiring
+
+The desktop backend follows the current TxLINE OpenAPI source at `https://txline.txodds.com/docs/docs.yaml`.
+
+- Auth/data credentials stay in Rust: `Authorization: Bearer <guest JWT>` and `X-Api-Token`.
+- Live SSE uses `GET /api/odds/stream` and `GET /api/scores/stream` from `src-tauri/src/txline/ingest.rs`.
+- Snapshot/proof commands cover fixtures, odds, scores, historical intervals, score history, and `/api/scores/stat-validation`.
+- Generic `fetch_txline` is restricted to documented GET data/proof endpoints; token activation and stream endpoints are not reachable through it.
+
 ## E2E Flow
 
 - `src-tauri/src/triton/yellowstone.rs` starts `runtime/sidecars/yellowstone-bridge.mjs` when `TRITON_GRPC_ENDPOINT` and `TRITON_X_TOKEN` are configured.

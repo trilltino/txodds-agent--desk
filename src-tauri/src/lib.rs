@@ -562,33 +562,159 @@ fn list_payment_intents(
 }
 
 #[tauri::command]
+async fn txline_fixtures_snapshot(
+    start_epoch_day: Option<u64>,
+    competition_id: Option<u64>,
+    state: State<'_, DesktopState>,
+) -> Result<Value, AppError> {
+    let mut query = Vec::new();
+    push_query(&mut query, "startEpochDay", start_epoch_day);
+    push_query(&mut query, "competitionId", competition_id);
+    txline::api::authenticated_get(&state.client, &state.config, "api/fixtures/snapshot", query)
+        .await
+}
+
+#[tauri::command]
+async fn txline_odds_snapshot(
+    fixture_id: u64,
+    as_of: Option<u64>,
+    state: State<'_, DesktopState>,
+) -> Result<Value, AppError> {
+    let mut query = Vec::new();
+    push_query(&mut query, "asOf", as_of);
+    txline::api::authenticated_get(
+        &state.client,
+        &state.config,
+        &format!("api/odds/snapshot/{fixture_id}"),
+        query,
+    )
+    .await
+}
+
+#[tauri::command]
+async fn txline_odds_updates(
+    fixture_id: u64,
+    state: State<'_, DesktopState>,
+) -> Result<Value, AppError> {
+    txline::api::authenticated_get(
+        &state.client,
+        &state.config,
+        &format!("api/odds/updates/{fixture_id}"),
+        vec![],
+    )
+    .await
+}
+
+#[tauri::command]
+async fn txline_odds_interval(
+    epoch_day: u64,
+    hour_of_day: u64,
+    interval: u64,
+    state: State<'_, DesktopState>,
+) -> Result<Value, AppError> {
+    txline::api::authenticated_get(
+        &state.client,
+        &state.config,
+        &format!("api/odds/updates/{epoch_day}/{hour_of_day}/{interval}"),
+        vec![],
+    )
+    .await
+}
+
+#[tauri::command]
+async fn txline_scores_snapshot(
+    fixture_id: u64,
+    as_of: Option<u64>,
+    state: State<'_, DesktopState>,
+) -> Result<Value, AppError> {
+    let mut query = Vec::new();
+    push_query(&mut query, "asOf", as_of);
+    txline::api::authenticated_get(
+        &state.client,
+        &state.config,
+        &format!("api/scores/snapshot/{fixture_id}"),
+        query,
+    )
+    .await
+}
+
+#[tauri::command]
+async fn txline_scores_updates(
+    fixture_id: u64,
+    state: State<'_, DesktopState>,
+) -> Result<Value, AppError> {
+    txline::api::authenticated_get(
+        &state.client,
+        &state.config,
+        &format!("api/scores/updates/{fixture_id}"),
+        vec![],
+    )
+    .await
+}
+
+#[tauri::command]
+async fn txline_scores_historical(
+    fixture_id: u64,
+    state: State<'_, DesktopState>,
+) -> Result<Value, AppError> {
+    txline::api::authenticated_get(
+        &state.client,
+        &state.config,
+        &format!("api/scores/historical/{fixture_id}"),
+        vec![],
+    )
+    .await
+}
+
+#[tauri::command]
+async fn txline_scores_interval(
+    epoch_day: u64,
+    hour_of_day: u64,
+    interval: u64,
+    state: State<'_, DesktopState>,
+) -> Result<Value, AppError> {
+    txline::api::authenticated_get(
+        &state.client,
+        &state.config,
+        &format!("api/scores/updates/{epoch_day}/{hour_of_day}/{interval}"),
+        vec![],
+    )
+    .await
+}
+
+#[tauri::command]
+async fn txline_scores_stat_validation(
+    fixture_id: u64,
+    seq: u64,
+    stat_key: Option<u64>,
+    stat_key2: Option<u64>,
+    stat_keys: Option<String>,
+    state: State<'_, DesktopState>,
+) -> Result<Value, AppError> {
+    let mut query = vec![
+        ("fixtureId", fixture_id.to_string()),
+        ("seq", seq.to_string()),
+    ];
+    push_query(&mut query, "statKey", stat_key);
+    push_query(&mut query, "statKey2", stat_key2);
+    if let Some(stat_keys) = stat_keys.filter(|value| !value.trim().is_empty()) {
+        query.push(("statKeys", stat_keys));
+    }
+    txline::api::authenticated_get(
+        &state.client,
+        &state.config,
+        "api/scores/stat-validation",
+        query,
+    )
+    .await
+}
+
+#[tauri::command]
 async fn fetch_txline(path: String, state: State<'_, DesktopState>) -> Result<Value, AppError> {
-    // Escape hatch for backend-owned TxLINE reads. Credentials are pulled from
-    // Rust config and never returned to the webview.
-    let jwt = state
-        .config
-        .txline_guest_jwt
-        .as_deref()
-        .ok_or_else(|| AppError::Config("TXLINE_GUEST_JWT missing".to_string()))?;
-    let token = state
-        .config
-        .txline_api_token
-        .as_deref()
-        .ok_or_else(|| AppError::Config("TXLINE_API_TOKEN missing".to_string()))?;
-    let url = format!(
-        "{}/api/{}",
-        state.config.txline_api_origin.trim_end_matches('/'),
-        path.trim_start_matches('/')
-    );
-    let response = state
-        .client
-        .get(url)
-        .bearer_auth(jwt)
-        .header("X-Api-Token", token)
-        .send()
-        .await?
-        .error_for_status()?;
-    Ok(response.json::<Value>().await?)
+    // Escape hatch for backend-owned TxLINE reads. It is intentionally
+    // allowlisted to documented GET data/proof endpoints; streams use
+    // start_txline, and auth/token activation cannot be reached from here.
+    txline::api::authenticated_get(&state.client, &state.config, &path, vec![]).await
 }
 
 #[tauri::command]
@@ -714,6 +840,15 @@ pub fn run() {
             create_solana_pay_intent,
             verify_solana_pay_intent,
             list_payment_intents,
+            txline_fixtures_snapshot,
+            txline_odds_snapshot,
+            txline_odds_updates,
+            txline_odds_interval,
+            txline_scores_snapshot,
+            txline_scores_updates,
+            txline_scores_historical,
+            txline_scores_interval,
+            txline_scores_stat_validation,
             fetch_txline,
             export_fan_card,
             yellowstone_status
@@ -727,6 +862,12 @@ fn sha256_hex(text: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
     hex::encode(hasher.finalize())
+}
+
+fn push_query(query: &mut Vec<(&'static str, String)>, name: &'static str, value: Option<u64>) {
+    if let Some(value) = value {
+        query.push((name, value.to_string()));
+    }
 }
 
 fn verifier_passed(run: &AgentRun) -> bool {

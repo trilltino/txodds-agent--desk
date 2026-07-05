@@ -73,6 +73,52 @@ export async function runAgentRoundNative(trigger: TxLineEvent, track: TrackMode
   return command<AgentRun>('run_agent_round', { trigger, track })
 }
 
+export async function txlineFixturesSnapshotNative(startEpochDay?: number, competitionId?: number): Promise<unknown> {
+  return command<unknown>('txline_fixtures_snapshot', { startEpochDay, competitionId })
+}
+
+export async function txlineOddsSnapshotNative(fixtureId: number, asOf?: number): Promise<unknown> {
+  return command<unknown>('txline_odds_snapshot', { fixtureId, asOf })
+}
+
+export async function txlineOddsUpdatesNative(fixtureId: number): Promise<unknown> {
+  return command<unknown>('txline_odds_updates', { fixtureId })
+}
+
+export async function txlineOddsIntervalNative(epochDay: number, hourOfDay: number, interval: number): Promise<unknown> {
+  return command<unknown>('txline_odds_interval', { epochDay, hourOfDay, interval })
+}
+
+export async function txlineScoresSnapshotNative(fixtureId: number, asOf?: number): Promise<unknown> {
+  return command<unknown>('txline_scores_snapshot', { fixtureId, asOf })
+}
+
+export async function txlineScoresUpdatesNative(fixtureId: number): Promise<unknown> {
+  return command<unknown>('txline_scores_updates', { fixtureId })
+}
+
+export async function txlineScoresHistoricalNative(fixtureId: number): Promise<unknown> {
+  return command<unknown>('txline_scores_historical', { fixtureId })
+}
+
+export async function txlineScoresIntervalNative(epochDay: number, hourOfDay: number, interval: number): Promise<unknown> {
+  return command<unknown>('txline_scores_interval', { epochDay, hourOfDay, interval })
+}
+
+export async function txlineScoresStatValidationNative(args: {
+  fixtureId: number
+  seq: number
+  statKey?: number
+  statKey2?: number
+  statKeys?: string
+}): Promise<unknown> {
+  return command<unknown>('txline_scores_stat_validation', args)
+}
+
+export async function fetchTxLineNative(path: string): Promise<unknown> {
+  return command<unknown>('fetch_txline', { path })
+}
+
 export async function listRunsNative(): Promise<AgentRun[]> {
   return command<AgentRun[]>('list_runs')
 }
