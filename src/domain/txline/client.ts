@@ -1,5 +1,5 @@
 import { mockEvents, mockFixtures } from './mock'
-import type { Fixture, TxLineEvent } from '../types'
+import type { Fixture, TxLineEvent } from '../../types'
 
 export interface TxLineConfig {
   apiOrigin: string

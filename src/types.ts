@@ -1,5 +1,14 @@
 export type TrackMode = 'settlement' | 'trading' | 'fan'
 
+export interface CoralAgentManifest {
+  id: string
+  displayName: string
+  coralRole: 'buyer' | 'seller' | 'verifier' | 'settlement' | string
+  service: string
+  manifestPath: string
+  description: string
+}
+
 export type TxLineEventKind =
   | 'fixture'
   | 'score_update'

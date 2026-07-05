@@ -13,9 +13,9 @@ This is not a rewrite. Every phase keeps the app demoable. Each phase moves one 
 | Layer | Current state | Problem for a "full" desktop app |
 | --- | --- | --- |
 | UI | React 19 + Vite, three track surfaces (Settlement Lab / Signal Arena / Fan Mode), Proof Panel, chain-status strip | Fine — stays |
-| Triton One | Live. `src/lib/triton.ts` polls JSON-RPC through a **Vite dev-server proxy** (`/rpc/devnet`, `/rpc/mainnet`) that injects `x-token` server-side | The proxy only exists under `npm run dev`. A packaged `.exe` serves `dist/` with **no proxy** → every Triton call breaks in production. This is the single biggest reason the app is currently "webview-only". |
-| TxLINE | `src/lib/txline.ts` does browser `fetch` SSE with mock fallback | Browser SSE from a webview hits CORS/token-exposure problems; tokens would live in JS |
-| Rust core | 4 commands in `src-tauri/src/lib.rs`: `get_config`, `hash_delivery`, `fetch_txline`, `triton_observe_stub` | `fetch_txline` is real (reqwest); Triton is a stub; no events; no state; no persistence |
+| Triton One | Browser-dev fallback lives in `src/domain/triton/client.ts`; native production calls live in `src-tauri/src/triton/rpc.rs` | Packaged `.exe` uses Rust RPC, not the Vite proxy. |
+| TxLINE | Browser-dev fallback lives in `src/domain/txline/client.ts`; native production ingestion lives in `src-tauri/src/txline/ingest.rs` | Browser SSE from a webview hits CORS/token-exposure problems; tokens would live in JS |
+| Rust core | Commands live in `src-tauri/src/lib.rs`; implementation is split across `coral/`, `triton/`, `txline/`, and `ledger/` | Rust owns production RPC, ingestion, events, persistence, settlement bridging, and native state |
 | Secrets | `.env` read by Vite config (dev only), gitignored | Tokens must move to the Rust side permanently |
 | Yellowstone gRPC | Not used anywhere | gRPC is impossible from a webview; **only** the Rust core can do this |
 | Capabilities | `core:default`, `opener:default` | Will need `shell`/`notification`/`tray` additions as features land |
@@ -162,7 +162,7 @@ This is the seam between Rust and React. Freeze it early; everything else can mo
 | `settle://receipt` | `SettlementReceipt` | `settle/escrow.rs` |
 | `ingest://status` | `{ source, state: "connected"\|"reconnecting"\|"stopped", detail }` | all ingest tasks |
 
-### Frontend seam: `src/lib/transport.ts` (new)
+### Frontend seam: `src/desktop/transport.ts`
 
 ```ts
 import { invoke, isTauri } from '@tauri-apps/api/core'
@@ -197,7 +197,7 @@ Each phase is shippable. Do them in order; none is longer than a focused day or 
 
 1. `config.rs`: load `TRITON_*` from `.env` via `dotenvy` at startup (dev); managed `AppConfig` state.
 2. `chain/rpc.rs`: reqwest JSON-RPC POST with `x-token` header, per-cluster; shared `reqwest::Client` in managed state; 10s timeout; map errors into `AppError`.
-3. Commands `chain_rpc` (allowlisted), `chain_status`, `observe_settlement` — direct ports of what `src/lib/triton.ts` does today, minus the proxy.
+3. Commands `chain_rpc` (allowlisted), `chain_status`, `observe_settlement` — direct ports of what `src/domain/triton/client.ts` does in browser-dev fallback mode, minus the proxy.
 4. Frontend: add `transport.ts`; point `triton.ts` at it.
 5. Keep the Vite proxy config for browser-mode dev. Delete nothing yet.
 
@@ -229,7 +229,7 @@ pub trait ChainObserver: Send + Sync {
 
 ### Phase 3 — Native TxLINE ingestion + replay
 
-1. `ingest/txline.rs`: port the SSE loop from `src/lib/txline.ts` to reqwest `bytes_stream()`; same block-splitting logic; JWT + `X-Api-Token` from config (secrets never reach the webview). Auto-reconnect with `Last-Event-ID` if TxLINE supports it.
+1. `src-tauri/src/txline/ingest.rs`: port the SSE loop from `src/domain/txline/client.ts` to reqwest `bytes_stream()`; same block-splitting logic; JWT + `X-Api-Token` from config (secrets never reach the webview). Auto-reconnect with `Last-Event-ID` if TxLINE supports it.
 2. `ingest/replay.rs`: every live event appends to `%APPDATA%/agent-desk/replays/<fixture>.jsonl`; `start_txline { mode: "replay" }` re-emits with original inter-event timing (or 10× speed flag). **This is the judging-day insurance** — mock mode stays for zero-data demos, replay mode shows real recorded TxLINE data.
 3. `mock` mode moves to Rust too (port `mock.ts` fixtures) so all three modes emit the same `txline://event`.
 4. `LiveFeed.tsx` subscribes via `transport.ts`; delete the static `useState(mockEvents)` in `App.tsx`.

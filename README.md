@@ -1,19 +1,13 @@
-# World Cup Agent Desk — Tauri scaffold for TxODDS / TxLINE
+# World Cup Agent Desk - Tauri desktop app for TxODDS / TxLINE / CoralOS
 
-A desktop command centre that combines all three Superteam World Cup tracks in one coherent product:
+A desktop command center that combines all three Superteam World Cup tracks in one coherent product:
 
-> **TxLINE event → agent round → verifier/proof → Solana settlement → Triton-observed chain state → fan/trader/market UI.**
+```text
+TxLINE event -> Coral market round -> verifier/proof -> Solana settlement
+  -> Triton-observed chain state -> fan/trader/market UI
+```
 
-This scaffold is designed to be dropped into `examples/txodds-agent-desk` inside `trilltino/solana_coralOS`, or run as a standalone Tauri app while calling the existing repo for escrow/market logic.
-
-## Why this product works
-
-The app is not a sportsbook. It is a **World Cup sports-intelligence and settlement console**:
-
-- **Settlement Lab**: create/devnet-resolve outcome markets using TxLINE scores/proofs.
-- **Signal Arena**: autonomous agents detect odds movement, risk-score it, and log strategy decisions.
-- **Fan Mode**: a mainstream AI pundit card explains goals, red cards, and odds shifts in plain English.
-- **Proof Panel**: shows TxLINE input, delivery hash, verifier verdict, escrow status, Explorer link, and Triton observation.
+This repo is a standalone Tauri app that can call the existing `trilltino/solana_coralOS` settlement rails while keeping the desktop UI, secrets, chain observation, run ledger, and native app packaging in this project.
 
 ## Run
 
@@ -23,21 +17,53 @@ cp .env.example .env
 npm run tauri:dev
 ```
 
-With no credentials, the app runs against mock data so your demo video has a safe fallback. Add `TXLINE_GUEST_JWT` and `TXLINE_API_TOKEN` to enable live TxLINE calls.
+With no credentials, the app runs against mock data. Add `TXLINE_GUEST_JWT` and `TXLINE_API_TOKEN` for live TxLINE calls.
 
-## Desktop architecture
+## Desktop Architecture
 
 This is an end-to-end Tauri desktop app, not a browser-only web app:
 
-- Tauri owns the native window, app identity, installer bundle, icon set, capabilities, notifications, and OS app-data storage.
-- Rust owns secrets, TxLINE ingestion, Triton RPC calls, run persistence, hash/reference generation, market-round execution, and native file export.
+- Tauri owns the native window, app identity, installer bundle, icons, capabilities, notifications, and app-data storage.
+- Rust owns secrets, TxLINE ingestion, Triton RPC, Yellowstone observation, run persistence, market-round execution, settlement bridging, and native export.
 - React/HTML/CSS/JavaScript remains the frontend renderer inside the Tauri webview.
-- In packaged/native mode, production network calls go through Rust commands and events. The webview does not receive Triton or TxLINE tokens.
-- Plain `npm run dev` remains useful for browser-only UI iteration, but `npm run tauri:dev` and `npm run tauri:build` are the desktop product paths.
+- In packaged/native mode, production network calls go through Rust commands and events. The webview does not receive Triton, TxLINE, CoralOS, or keypair secrets.
+- Plain `npm run dev` remains useful for browser UI iteration, but `npm run tauri:dev` and `npm run tauri:build` are the desktop product paths.
 
-## Live Yellowstone + CoralOS wiring
+## Compartments
 
-Yellowstone gRPC runs as a Rust-managed backend sidecar using Triton's official `@triton-one/yellowstone-grpc` SDK. Set:
+The repo is organized around CoralOS-style boundaries:
+
+| Compartment | Owns |
+|---|---|
+| `coral-agents/` | Coral agent manifests: buyer, sellers, verifier, settlement arbiter. |
+| `src-tauri/src/coral/` | Native Coral market, agent registry, and settlement sidecar bridge. |
+| `src-tauri/src/triton/` | Triton JSON-RPC and Yellowstone gRPC observation. |
+| `src-tauri/src/txline/` | Native TxLINE live/mock/replay ingestion. |
+| `src-tauri/src/ledger/` | SQLite run ledger. |
+| `src/domain/coral/` | Browser-dev Coral market fallback, bidding, scoring, and agent registry. |
+| `src/domain/triton/` | Browser-dev Triton fallback client. |
+| `src/domain/txline/` | Browser-dev TxLINE fallback client and mock fixtures. |
+| `src/desktop/transport.ts` | The Tauri IPC boundary. |
+| `sidecars/` | Node sidecars for CoralOS settlement and Yellowstone gRPC. |
+
+## Coral Agents
+
+The app now exposes explicit Coral agent identities instead of hiding them inside generic UI labels:
+
+| Agent | Role | Service |
+|---|---|---|
+| `worldcup-buyer-agent` | buyer | Converts TxLINE triggers into WANTs and awards sellers. |
+| `seller-worldcup-edge` | seller | Sells fixture-bound TxLINE fair-line reads. |
+| `seller-risk-policy` | seller | Sells risk policy and no-action/observe/simulate guidance. |
+| `seller-fan-card` | seller | Sells shareable fan-card output. |
+| `verifier-agent` | verifier | Checks hash, fixture binding, proof shape, and policy gates. |
+| `settlement-arbiter-agent` | settlement | Bridges verified runs to CoralOS settlement and Triton observation. |
+
+Each lives under `coral-agents/<agent>/coral-agent.toml`. The desktop UI loads the same registry through `list_coral_agents`.
+
+## Live Yellowstone + CoralOS Wiring
+
+Yellowstone gRPC runs as a Rust-managed backend sidecar using Triton's official `@triton-one/yellowstone-grpc` SDK pinned to the Windows-compatible `4.x` line.
 
 ```bash
 TRITON_GRPC_ENDPOINT=https://your-endpoint.rpcpool.com:443
@@ -57,46 +83,32 @@ CORALOS_SETTLEMENT_ENABLED=1
 
 The sidecars run outside the webview. Tokens, keypairs, proxy credentials, and settlement operations stay in Rust/Node backend processes.
 
-## Current E2E wiring
+## E2E Flow
 
-The desktop app now has live backend integration surfaces instead of browser-only placeholders:
-
-- `src-tauri/src/yellowstone.rs` starts `sidecars/yellowstone-bridge.mjs` when `TRITON_GRPC_ENDPOINT` and `TRITON_X_TOKEN` are configured.
-- The Yellowstone sidecar uses Triton's official `@triton-one/yellowstone-grpc` SDK pinned to the Windows-compatible `4.x` line and emits `chain://slot`, `chain://account`, and `chain://tx` through Rust.
+- `src-tauri/src/triton/yellowstone.rs` starts `sidecars/yellowstone-bridge.mjs` when `TRITON_GRPC_ENDPOINT` and `TRITON_X_TOKEN` are configured.
 - `watch_account`, `watch_program`, and `watch_reference` commands update live Yellowstone subscription filters from the desktop app.
-- `src-tauri/src/settle.rs` sends completed agent runs to `sidecars/coralos-bridge.mjs` over newline-delimited JSON.
-- The CoralOS bridge prefers a docs-style `CORALOS_BRIDGE_URL` with `/rounds` and `/settlement/:id/release`; otherwise it calls the existing TxODDS proxy `/api/settle`.
+- `src-tauri/src/coral/market.rs` runs WANT -> BID -> AWARD -> DELIVERED -> VERIFIED.
+- `src-tauri/src/coral/settlement.rs` sends completed runs to `sidecars/coralos-bridge.mjs` over newline-delimited JSON.
 - `run_agent_round` attempts CoralOS settlement, emits `settle://receipt`, registers Yellowstone watches for the returned escrow/reference, observes through Triton RPC, and persists the run to SQLite.
-- The Windows installer bundles the sidecar scripts, their Node module runtime dependencies, and `sidecars/bin/node.exe`; `NODE_BIN` can still override the bundled runtime.
+- The Windows installer bundles sidecar scripts, their Node module runtime dependencies, and `sidecars/bin/node.exe`; `NODE_BIN` can still override the bundled runtime.
 
-## Legacy CoralOS source map
+## CoralOS Reference Map
 
-| Existing repo piece | Used here as |
+| `solana_coralOS` piece | Used here as |
 |---|---|
-| `examples/txodds/agent/txline.ts` | Production TxLINE client implementation to replace `src/lib/txline.ts` stubs. |
-| `examples/txodds/agent/service.ts` | Agent delivery fork point. Add `case 'fan-card'`, `case 'signal'`, `case 'resolve-market'`. |
-| `examples/research` | Event-driven odds-move trigger logic. |
-| `packages/agent-runtime/src/market` | WANT/BID/AWARD wire protocol for real CoralOS rounds. |
-| `packages/agent-runtime/src/ledger` | Durable run record: trigger, bids, award, delivery, verification, txs. |
-| `packages/agent-runtime/src/policy` | Spend caps, service allowlist, verifier-gated release. |
-| `examples/txodds/escrow` | Devnet escrow/arbiter settlement spine. |
+| `coral-agents/*/coral-agent.toml` | Agent identity and persona pattern mirrored in this repo. |
+| `packages/agent-runtime/src/coral` | `src-tauri/src/coral/agents.rs` and sidecar bridge boundaries. |
+| `packages/agent-runtime/src/market` | `src-tauri/src/coral/market.rs` and `src/domain/coral/*`. |
+| `packages/agent-runtime/src/ledger` | `src-tauri/src/ledger/store.rs`. |
+| `packages/agent-runtime/src/policy` | Policy notes in verifier/settlement agents; settlement release remains gated. |
+| `examples/txodds/agent/txline.ts` | `src-tauri/src/txline/ingest.rs` plus browser fallback in `src/domain/txline`. |
+| `examples/txodds/escrow` | CoralOS settlement sidecar/proxy integration. |
 
-## Original scaffold notes
-
-These were the original scaffold tasks and are superseded by the current Rust/sidecar wiring above.
-
-1. Keep this Tauri UI and mock agent round working.
-2. Swap `src/lib/txline.ts` with your existing TxLINE client and SSE parser.
-3. Wire `runLocalAgentRound()` to your CoralOS market: `WANT → BID → AWARD → DEPOSITED → DELIVERED → VERIFIED → RELEASED`.
-4. Replace `createDevnetEscrowStub()` with your deployed escrow/arbiter calls.
-5. Replace `watchEscrowWithTriton()` with Yellowstone gRPC account/transaction subscriptions.
-6. Add TxLINE stat-validation receipts to Settlement Lab.
-
-## App screens
+## App Screens
 
 - `LiveFeed`: real-time TxLINE event stream.
-- `AgentArena`: bidding between sharp, risk, pundit, and settlement agents.
-- `SettlementLab`: Track 1 market/proof/escrow state.
-- `FanMode`: Track 3 mainstream fan-facing product.
+- `AgentArena`: Coral buyer/seller/verifier/settlement roster plus live bids.
+- `SettlementLab`: market/proof/escrow state.
+- `FanMode`: mainstream fan-facing product.
 - `ProofPanel`: judge-facing chain of evidence.
-- `TrackScorecard`: shows why the same product fits all three tracks.
+- `TrackScorecard`: why the same product fits all three tracks.

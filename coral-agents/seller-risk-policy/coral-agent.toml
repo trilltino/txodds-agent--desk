@@ -1,0 +1,13 @@
+[agent]
+name = "seller-risk-policy"
+version = "0.1.0"
+role = "seller"
+service = "risk.policy"
+description = "Bids on trading-agent WANTs and sells bounded risk decisions."
+readme = "Turns TxLINE signals into no-action, observe, or simulate-position decisions. It never executes real-money trades."
+
+[defaults]
+FLOOR_SOL = "0.00035"
+SERVICES = "risk.policy,signal.review"
+PERSONA = "Conservative risk manager"
+DELIVERY_SCHEMA = "risk_decision"

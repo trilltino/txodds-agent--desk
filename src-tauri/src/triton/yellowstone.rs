@@ -30,11 +30,15 @@ impl YellowstoneHandle {
     }
 
     pub fn watch_program(&self, program_id: String) {
-        let _ = self.tx.send(YellowstoneCommand::WatchProgram { program_id });
+        let _ = self
+            .tx
+            .send(YellowstoneCommand::WatchProgram { program_id });
     }
 
     pub fn watch_reference(&self, reference: String) {
-        let _ = self.tx.send(YellowstoneCommand::WatchReference { reference });
+        let _ = self
+            .tx
+            .send(YellowstoneCommand::WatchReference { reference });
     }
 }
 
@@ -63,7 +67,10 @@ async fn run_sidecar(
         emit_status(
             &app,
             "stopped",
-            &format!("Yellowstone sidecar not found at {}", sidecar_path.display()),
+            &format!(
+                "Yellowstone sidecar not found at {}",
+                sidecar_path.display()
+            ),
         );
         return;
     }
@@ -134,7 +141,11 @@ async fn run_sidecar(
             Ok(Some(line)) => handle_sidecar_line(&app, &line),
             Ok(None) => break,
             Err(err) => {
-                emit_status(&app, "reconnecting", &format!("Yellowstone sidecar read failed: {err}"));
+                emit_status(
+                    &app,
+                    "reconnecting",
+                    &format!("Yellowstone sidecar read failed: {err}"),
+                );
                 break;
             }
         }
@@ -173,8 +184,14 @@ fn handle_sidecar_line(app: &AppHandle, line: &str) {
     match value.get("event").and_then(Value::as_str) {
         Some("status") => emit_status(
             app,
-            value.get("state").and_then(Value::as_str).unwrap_or("connected"),
-            value.get("detail").and_then(Value::as_str).unwrap_or("Yellowstone update"),
+            value
+                .get("state")
+                .and_then(Value::as_str)
+                .unwrap_or("connected"),
+            value
+                .get("detail")
+                .and_then(Value::as_str)
+                .unwrap_or("Yellowstone update"),
         ),
         Some("slot") => {
             if let Some(slot) = value.get("slot").and_then(Value::as_u64) {
@@ -191,7 +208,10 @@ fn handle_sidecar_line(app: &AppHandle, line: &str) {
             }
         }
         Some("account") => {
-            let _ = app.emit("chain://account", value.get("payload").cloned().unwrap_or(value));
+            let _ = app.emit(
+                "chain://account",
+                value.get("payload").cloned().unwrap_or(value),
+            );
         }
         Some("tx") => {
             let _ = app.emit("chain://tx", value.get("payload").cloned().unwrap_or(value));

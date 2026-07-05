@@ -96,7 +96,8 @@ impl AppConfig {
                 || self.triton_pair_configured(Cluster::Mainnet),
             triton_devnet_configured: self.triton_pair_configured(Cluster::Devnet),
             triton_mainnet_configured: self.triton_pair_configured(Cluster::Mainnet),
-            yellowstone_configured: self.triton_grpc_endpoint.is_some() && self.triton_x_token.is_some(),
+            yellowstone_configured: self.triton_grpc_endpoint.is_some()
+                && self.triton_x_token.is_some(),
             coralos_configured: self.coralos_settlement_enabled
                 && (self.coralos_bridge_url.is_some() || self.coralos_root.is_some()),
             axum_enabled: self.axum_enabled,

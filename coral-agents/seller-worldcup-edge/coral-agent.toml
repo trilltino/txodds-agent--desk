@@ -1,0 +1,13 @@
+[agent]
+name = "seller-worldcup-edge"
+version = "0.1.0"
+role = "seller"
+service = "txline.edge"
+description = "Bids on odds movement WANTs and delivers a fixture-bound fair-line read."
+readme = "Specialist TxLINE seller for World Cup market movement. Produces hash-bound JSON used by the ledger and settlement reference."
+
+[defaults]
+FLOOR_SOL = "0.00045"
+SERVICES = "txline.edge,txline.fixture,txline.odds"
+PERSONA = "World Cup odds movement specialist"
+DELIVERY_SCHEMA = "fair_line_read"

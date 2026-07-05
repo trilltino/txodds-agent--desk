@@ -1,13 +1,11 @@
-mod chain;
 mod config;
+mod coral;
 mod error;
-mod ingest;
 mod ledger;
-mod market;
-mod settle;
+mod triton;
+mod txline;
 mod types;
 mod web;
-mod yellowstone;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -31,8 +29,8 @@ struct DesktopState {
     client: Client,
     ledger: Arc<Mutex<LedgerStore>>,
     txline_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
-    yellowstone: Option<yellowstone::YellowstoneHandle>,
-    settlement_bridge: settle::SettlementBridge,
+    yellowstone: Option<triton::yellowstone::YellowstoneHandle>,
+    settlement_bridge: coral::settlement::SettlementBridge,
     replay_dir: PathBuf,
     export_dir: PathBuf,
 }
@@ -57,6 +55,11 @@ fn get_config(state: State<'_, DesktopState>) -> PublicConfig {
 }
 
 #[tauri::command]
+fn list_coral_agents() -> Vec<coral::agents::CoralAgentManifest> {
+    coral::agents::built_in_agents()
+}
+
+#[tauri::command]
 fn hash_delivery(payload: String) -> HashReceipt {
     let sha256 = sha256_hex(&payload);
     HashReceipt {
@@ -72,7 +75,7 @@ async fn chain_rpc(
     params: Option<Value>,
     state: State<'_, DesktopState>,
 ) -> Result<Value, AppError> {
-    chain::triton_rpc(
+    triton::rpc::triton_rpc(
         &state.client,
         &state.config,
         cluster,
@@ -88,7 +91,7 @@ async fn chain_status(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<ChainStatus, AppError> {
-    let status = chain::chain_status(&state.client, &state.config, cluster).await?;
+    let status = triton::rpc::chain_status(&state.client, &state.config, cluster).await?;
     let _ = app.emit("chain://slot", &status);
     Ok(status)
 }
@@ -107,7 +110,8 @@ async fn observe_settlement(
         }
     }
     let observation =
-        chain::observe_settlement(&state.client, &state.config, reference, escrow_account).await?;
+        triton::rpc::observe_settlement(&state.client, &state.config, reference, escrow_account)
+            .await?;
     let _ = app.emit("settle://receipt", &observation);
     Ok(observation)
 }
@@ -158,7 +162,7 @@ async fn start_txline(
             handle.abort();
         }
     }
-    let handle = ingest::spawn_txline(
+    let handle = txline::spawn_txline(
         app,
         state.client.clone(),
         state.config.clone(),
@@ -193,21 +197,28 @@ async fn run_agent_round(
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<AgentRun, AppError> {
-    let mut run = market::run_round(trigger, track);
+    let mut run = coral::market::run_round(trigger, track);
 
     if let Some(reference) = run
         .settlement
         .as_ref()
         .and_then(|settlement| settlement.reference.clone())
     {
-        match state.settlement_bridge.settle_run(&state.config, &run).await {
+        match state
+            .settlement_bridge
+            .settle_run(&state.config, &run)
+            .await
+        {
             Ok(receipt) => {
                 let detail = format!(
                     "CoralOS sidecar settled reference {}",
-                    receipt.reference.clone().unwrap_or_else(|| reference.clone())
+                    receipt
+                        .reference
+                        .clone()
+                        .unwrap_or_else(|| reference.clone())
                 );
                 run.settlement = Some(receipt.clone());
-                market::append_timeline(&mut run, "CORALOS", detail);
+                coral::market::append_timeline(&mut run, "CORALOS", detail);
                 let _ = app.emit("settle://receipt", &receipt);
                 if let Some(yellowstone) = &state.yellowstone {
                     if let Some(account) = receipt.escrow_pda.clone() {
@@ -219,7 +230,7 @@ async fn run_agent_round(
                 }
             }
             Err(err) => {
-                market::append_timeline(
+                coral::market::append_timeline(
                     &mut run,
                     "CORALOS",
                     format!("sidecar settlement unavailable: {err}"),
@@ -236,17 +247,23 @@ async fn run_agent_round(
             .as_ref()
             .and_then(|settlement| settlement.reference.clone())
             .unwrap_or(reference);
-        match chain::observe_settlement(&state.client, &state.config, reference.clone(), escrow_account.clone()).await
+        match triton::rpc::observe_settlement(
+            &state.client,
+            &state.config,
+            reference.clone(),
+            escrow_account.clone(),
+        )
+        .await
         {
             Ok(observation) => {
                 if let Some(settlement) = run.settlement.as_mut() {
                     settlement.triton_observed = Some(true);
                     settlement.triton_slot = observation.slot;
-                    settlement.explorer_url = observation
-                        .slot
-                        .map(|slot| format!("https://explorer.solana.com/block/{slot}?cluster=devnet"));
+                    settlement.explorer_url = observation.slot.map(|slot| {
+                        format!("https://explorer.solana.com/block/{slot}?cluster=devnet")
+                    });
                 }
-                market::append_timeline(&mut run, "TRITON", observation.note);
+                coral::market::append_timeline(&mut run, "TRITON", observation.note);
                 if let Some(yellowstone) = &state.yellowstone {
                     yellowstone.watch_reference(reference);
                     if let Some(account) = escrow_account {
@@ -255,7 +272,7 @@ async fn run_agent_round(
                 }
             }
             Err(err) => {
-                market::append_timeline(
+                coral::market::append_timeline(
                     &mut run,
                     "TRITON",
                     format!("chain observer unavailable: {err}"),
@@ -343,7 +360,10 @@ async fn fetch_txline(path: String, state: State<'_, DesktopState>) -> Result<Va
 }
 
 #[tauri::command]
-async fn export_fan_card(run_id: String, state: State<'_, DesktopState>) -> Result<ExportResult, AppError> {
+async fn export_fan_card(
+    run_id: String,
+    state: State<'_, DesktopState>,
+) -> Result<ExportResult, AppError> {
     let run = {
         let ledger = state
             .ledger
@@ -374,7 +394,7 @@ async fn yellowstone_status(state: State<'_, DesktopState>) -> Result<String, Ap
     if state.yellowstone.is_some() {
         Ok("Yellowstone gRPC observer is running".to_string())
     } else {
-        chain::yellowstone_status(&state.config).await
+        triton::rpc::yellowstone_status(&state.config).await
     }
 }
 
@@ -395,24 +415,25 @@ pub fn run() {
             std::fs::create_dir_all(&replay_dir)?;
             std::fs::create_dir_all(&export_dir)?;
 
-            let ledger = Arc::new(Mutex::new(LedgerStore::open(app_data_dir.join("ledger.sqlite3"))?));
+            let ledger = Arc::new(Mutex::new(LedgerStore::open(
+                app_data_dir.join("ledger.sqlite3"),
+            )?));
             let sidecar_path = resolve_sidecar_path(app, &config);
-            let yellowstone_sidecar_path = resolve_named_sidecar_path(app, "yellowstone-bridge.mjs");
-            let yellowstone = if config.triton_grpc_endpoint.is_some() && config.triton_x_token.is_some() {
-                Some(yellowstone::spawn(
-                    app.handle().clone(),
-                    config.clone(),
-                    yellowstone_sidecar_path,
-                ))
-            } else {
-                None
-            };
+            let yellowstone_sidecar_path =
+                resolve_named_sidecar_path(app, "yellowstone-bridge.mjs");
+            let yellowstone =
+                if config.triton_grpc_endpoint.is_some() && config.triton_x_token.is_some() {
+                    Some(triton::yellowstone::spawn(
+                        app.handle().clone(),
+                        config.clone(),
+                        yellowstone_sidecar_path,
+                    ))
+                } else {
+                    None
+                };
             if config.axum_enabled {
-                let _ = web::spawn_loopback(
-                    config.public(),
-                    config.axum_token.clone(),
-                    ledger.clone(),
-                );
+                let _ =
+                    web::spawn_loopback(config.public(), config.axum_token.clone(), ledger.clone());
             }
 
             app.manage(DesktopState {
@@ -423,7 +444,7 @@ pub fn run() {
                 ledger,
                 txline_task: Mutex::new(None),
                 yellowstone,
-                settlement_bridge: settle::SettlementBridge::new(sidecar_path),
+                settlement_bridge: coral::settlement::SettlementBridge::new(sidecar_path),
                 replay_dir,
                 export_dir,
             });
@@ -431,6 +452,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_config,
+            list_coral_agents,
             hash_delivery,
             chain_rpc,
             chain_status,

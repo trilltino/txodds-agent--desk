@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AgentRun, TrackMode, TxLineEvent } from './types'
-import { mockEvents } from './lib/mock'
-import { runLocalAgentRound } from './lib/agentMarket'
-import { getConfig, listRunsNative, native, onTxLineEvent, runAgentRoundNative, startTxLine, stopTxLine } from './lib/transport'
+import type { AgentRun, CoralAgentManifest, TrackMode, TxLineEvent } from './types'
+import { mockEvents } from './domain/txline/mock'
+import { runLocalAgentRound } from './domain/coral/localRound'
+import { fallbackCoralAgents, loadCoralAgents } from './domain/coral/agents'
+import { getConfig, listRunsNative, native, onTxLineEvent, runAgentRoundNative, startTxLine, stopTxLine } from './desktop/transport'
 import { Shell } from './components/Shell'
 import { LiveFeed } from './components/LiveFeed'
 import { AgentArena } from './components/AgentArena'
@@ -16,9 +17,11 @@ export default function App() {
   const [events, setEvents] = useState<TxLineEvent[]>(native ? [] : mockEvents)
   const [selectedEvent, setSelectedEvent] = useState<TxLineEvent>(mockEvents[0])
   const [runs, setRuns] = useState<AgentRun[]>([])
+  const [agents, setAgents] = useState<CoralAgentManifest[]>(fallbackCoralAgents)
   const currentRun = useMemo(() => runs[0], [runs])
 
   useEffect(() => {
+    void loadCoralAgents().then(setAgents)
     if (!native) return
 
     const offTxLine = onTxLineEvent((event) => {
@@ -48,7 +51,7 @@ export default function App() {
     <Shell track={track} setTrack={setTrack} onStart={() => startRound()}>
       <section className="grid two">
         <LiveFeed events={events} selected={selectedEvent} onSelect={setSelectedEvent} onStartRound={startRound} />
-        <AgentArena track={track} run={currentRun} onRun={() => startRound()} />
+        <AgentArena agents={agents} track={track} run={currentRun} onRun={() => startRound()} />
       </section>
       <section className="grid two">
         <SettlementLab run={currentRun} />

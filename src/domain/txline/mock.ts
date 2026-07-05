@@ -1,4 +1,4 @@
-import type { AgentRun, Fixture, TxLineEvent } from '../types'
+import type { AgentRun, Fixture, TxLineEvent } from '../../types'
 
 export const mockFixtures: Fixture[] = [
   { fixtureId: 17588245, home: 'Brazil', away: 'England', competition: 'World Cup', status: 'live', startTime: new Date().toISOString() },

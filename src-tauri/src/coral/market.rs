@@ -9,11 +9,19 @@ use crate::types::{
 
 pub fn run_round(trigger: TxLineEvent, track: TrackMode) -> AgentRun {
     let mut run = empty_run(trigger, track);
-    push(&mut run, "WANT", format!("buyer asks for {track} output"));
+    push(
+        &mut run,
+        "WANT",
+        format!("worldcup-buyer-agent asks for {track} output"),
+    );
 
     run.bids = generate_bids(&run.trigger, track);
     let bid_count = run.bids.len();
-    push(&mut run, "BID", format!("{bid_count} specialist agents bid"));
+    push(
+        &mut run,
+        "BID",
+        format!("{bid_count} specialist agents bid"),
+    );
 
     run.winner = choose_winner(track, &run.bids);
     let winner_detail = format!(
@@ -136,43 +144,57 @@ fn generate_bids(event: &TxLineEvent, track: TrackMode) -> Vec<AgentBid> {
     };
     let bids = vec![
         AgentBid {
-            agent_id: "sharp-movement-agent".to_string(),
+            agent_id: "seller-worldcup-edge".to_string(),
             role: AgentRole::Sharp,
             price_sol: 0.018,
             confidence: (base + 0.08).min(0.94),
             eta_ms: 900,
-            note: "Detects implied-probability movement, compares against previous board, outputs signal + rationale.".to_string(),
+            note: "TxLINE seller: detects implied-probability movement, compares the board, and delivers a fair-line read.".to_string(),
         },
         AgentBid {
-            agent_id: "risk-manager-agent".to_string(),
+            agent_id: "seller-risk-policy".to_string(),
             role: AgentRole::Risk,
             price_sol: 0.012,
             confidence: (base + 0.02).min(0.90),
             eta_ms: 700,
-            note: "Turns a signal into no-action / observe / simulate-position with bounded downside.".to_string(),
+            note: "Risk seller: turns a signal into no-action / observe / simulate-position with bounded downside.".to_string(),
         },
         AgentBid {
-            agent_id: "ai-pundit-agent".to_string(),
+            agent_id: "seller-fan-card".to_string(),
             role: AgentRole::Pundit,
             price_sol: 0.010,
             confidence: (base + 0.01).min(0.88),
             eta_ms: 600,
-            note: "Explains the football story and market movement in plain English for fans.".to_string(),
+            note: "Fan seller: explains the football story and market movement in plain English.".to_string(),
         },
         AgentBid {
-            agent_id: "settlement-verifier-agent".to_string(),
+            agent_id: "verifier-agent".to_string(),
+            role: AgentRole::Verifier,
+            price_sol: 0.009,
+            confidence: 0.91,
+            eta_ms: 800,
+            note: "Independent verifier: checks content hash, fixture binding, TxLINE proof shape, and policy gates.".to_string(),
+        },
+        AgentBid {
+            agent_id: "settlement-arbiter-agent".to_string(),
             role: AgentRole::Settlement,
             price_sol: 0.016,
             confidence: 0.92,
             eta_ms: 1100,
-            note: "Builds a proof receipt, checks TxLINE stat/proof availability, and gates escrow release.".to_string(),
+            note: "Settlement arbiter: packages the verified run for CoralOS escrow release and Triton observation.".to_string(),
         },
     ];
 
     bids.into_iter()
         .filter(|bid| match track {
-            TrackMode::Fan => matches!(bid.role, AgentRole::Pundit | AgentRole::Fan | AgentRole::Sharp),
-            TrackMode::Trading => matches!(bid.role, AgentRole::Sharp | AgentRole::Risk | AgentRole::Pundit),
+            TrackMode::Fan => matches!(
+                bid.role,
+                AgentRole::Pundit | AgentRole::Fan | AgentRole::Sharp
+            ),
+            TrackMode::Trading => matches!(
+                bid.role,
+                AgentRole::Sharp | AgentRole::Risk | AgentRole::Pundit
+            ),
             TrackMode::Settlement => matches!(
                 bid.role,
                 AgentRole::Settlement | AgentRole::Verifier | AgentRole::Sharp | AgentRole::Risk
@@ -229,7 +251,11 @@ fn make_delivery_payload(event: &TxLineEvent, track: TrackMode, agent_id: &str) 
 }
 
 fn verify_delivery(delivery: &AgentDelivery, track: TrackMode) -> VerificationVerdict {
-    let mut checked = vec![VerdictCheck::TxlineInput, VerdictCheck::Hash, VerdictCheck::Policy];
+    let mut checked = vec![
+        VerdictCheck::TxlineInput,
+        VerdictCheck::Hash,
+        VerdictCheck::Policy,
+    ];
     if matches!(track, TrackMode::Settlement) {
         checked.push(VerdictCheck::Proof);
     }

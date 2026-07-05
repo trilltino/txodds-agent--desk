@@ -1,7 +1,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { AgentRun, TrackMode, TxLineEvent } from '../types'
-import type { ChainStatus, Cluster, TritonObservation } from './triton'
+import type { AgentRun, CoralAgentManifest, TrackMode, TxLineEvent } from '../types'
+import type { ChainStatus, Cluster, TritonObservation } from '../domain/triton/client'
 
 export const native = isTauri()
 
@@ -29,6 +29,10 @@ export function command<T>(name: string, args?: Record<string, unknown>): Promis
 
 export async function getConfig(): Promise<PublicConfig> {
   return command<PublicConfig>('get_config')
+}
+
+export async function listCoralAgentsNative(): Promise<CoralAgentManifest[]> {
+  return command<CoralAgentManifest[]>('list_coral_agents')
 }
 
 export async function chainRpcNative<T>(cluster: Cluster, method: string, params: unknown[] = []): Promise<T> {

@@ -1,4 +1,4 @@
-import { chainRpcNative, chainStatusNative, native, observeSettlementNative, onChainSlot } from './transport'
+import { chainRpcNative, chainStatusNative, native, observeSettlementNative, onChainSlot } from '../../desktop/transport'
 
 // Browser-dev mode still uses the Vite proxy for fast React iteration. Native
 // Tauri mode routes Triton calls through Rust so tokens and rpcpool requests

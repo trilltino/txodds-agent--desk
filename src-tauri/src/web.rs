@@ -76,9 +76,13 @@ async fn list_runs(State(state): State<WebState>, headers: HeaderMap) -> impl In
     let runs = match state.ledger.lock() {
         Ok(ledger) => match ledger.list_runs() {
             Ok(runs) => runs,
-            Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+            Err(err) => {
+                return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
+            }
         },
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "ledger lock poisoned").into_response(),
+        Err(_) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "ledger lock poisoned").into_response()
+        }
     };
     Json(runs).into_response()
 }
@@ -96,7 +100,9 @@ async fn get_run(
             Ok(run) => run,
             Err(err) => return (StatusCode::NOT_FOUND, err.to_string()).into_response(),
         },
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "ledger lock poisoned").into_response(),
+        Err(_) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "ledger lock poisoned").into_response()
+        }
     };
     Json(run).into_response()
 }

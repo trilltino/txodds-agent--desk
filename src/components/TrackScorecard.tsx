@@ -1,7 +1,7 @@
 const rows = [
   ['Prediction Markets & Settlement', 'TxLINE stream triggers markets; proof receipt/verifier gates escrow release; Triton confirms on-chain state.'],
-  ['Trading Tools & Agents', 'Sharp/risk/pundit agents run autonomously from live odds and log signals with deterministic scoring.'],
-  ['Consumer & Fan Experiences', 'Fan card and AI pundit explain goals, red cards, and odds shifts in a mainstream UI.']
+  ['Trading Tools & Agents', 'Coral sellers bid on TxLINE WANTs; risk policy and fair-line reads are scored deterministically.'],
+  ['Consumer & Fan Experiences', 'The fan-card seller explains goals, cards, and odds shifts in a mainstream UI.']
 ]
 
 export function TrackScorecard() {

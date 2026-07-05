@@ -111,9 +111,15 @@ pub async fn observe_settlement(
     reference: String,
     escrow_account: Option<String>,
 ) -> Result<TritonObservation, AppError> {
-    let slot = triton_rpc(client, config, Cluster::Devnet, "getSlot", Value::Array(vec![]))
-        .await?
-        .as_u64();
+    let slot = triton_rpc(
+        client,
+        config,
+        Cluster::Devnet,
+        "getSlot",
+        Value::Array(vec![]),
+    )
+    .await?
+    .as_u64();
     let blockhash_info = triton_rpc(
         client,
         config,
@@ -169,7 +175,8 @@ pub async fn yellowstone_status(config: &AppConfig) -> Result<String, AppError> 
         Ok("configured; Rust-managed Yellowstone gRPC sidecar streams slots, accounts, and transactions".to_string())
     } else {
         Err(AppError::Config(
-            "TRITON_GRPC_ENDPOINT and TRITON_X_TOKEN are required for Yellowstone streams".to_string(),
+            "TRITON_GRPC_ENDPOINT and TRITON_X_TOKEN are required for Yellowstone streams"
+                .to_string(),
         ))
     }
 }

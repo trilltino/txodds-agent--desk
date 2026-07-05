@@ -1,4 +1,4 @@
-import type { OddsQuote, TxLineEvent } from '../types'
+import type { OddsQuote, TxLineEvent } from '../../types'
 
 export function detectOddsMove(prev: OddsQuote[], next: OddsQuote[], thresholdPct = 5): TxLineEvent | null {
   for (const q of next) {

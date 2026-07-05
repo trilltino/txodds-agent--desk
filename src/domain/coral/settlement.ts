@@ -1,4 +1,4 @@
-import type { AgentDelivery, SettlementReceipt, TxLineProofReceipt } from '../types'
+import type { AgentDelivery, SettlementReceipt, TxLineProofReceipt } from '../../types'
 
 export function buildReference(delivery: AgentDelivery, proof?: TxLineProofReceipt): string {
   return proof?.merkleRoot ? `txline:${proof.fixtureId}:${proof.merkleRoot}:${delivery.sha256}` : `sha256:${delivery.sha256}`

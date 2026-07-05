@@ -1,4 +1,4 @@
-import type { AgentBid, TrackMode } from '../types'
+import type { AgentBid, TrackMode } from '../../types'
 
 export function scoreBid(track: TrackMode, bid: AgentBid): number {
   const roleBoost: Record<string, number> = {

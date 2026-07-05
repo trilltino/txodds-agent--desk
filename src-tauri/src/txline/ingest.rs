@@ -75,18 +75,36 @@ async fn replay_loop(app: AppHandle, replay_dir: PathBuf, fixture_id: Option<Str
 
 async fn live_loop(app: AppHandle, client: Client, config: AppConfig, replay_dir: PathBuf) {
     let Some(jwt) = config.txline_guest_jwt.as_deref() else {
-        emit_status(&app, "live", "reconnecting", "TXLINE_GUEST_JWT missing; using mock stream");
+        emit_status(
+            &app,
+            "live",
+            "reconnecting",
+            "TXLINE_GUEST_JWT missing; using mock stream",
+        );
         mock_loop(app).await;
         return;
     };
     let Some(token) = config.txline_api_token.as_deref() else {
-        emit_status(&app, "live", "reconnecting", "TXLINE_API_TOKEN missing; using mock stream");
+        emit_status(
+            &app,
+            "live",
+            "reconnecting",
+            "TXLINE_API_TOKEN missing; using mock stream",
+        );
         mock_loop(app).await;
         return;
     };
 
-    emit_status(&app, "live", "connected", "Rust TxLINE SSE client connecting");
-    let stream_url = format!("{}/api/odds/stream", config.txline_api_origin.trim_end_matches('/'));
+    emit_status(
+        &app,
+        "live",
+        "connected",
+        "Rust TxLINE SSE client connecting",
+    );
+    let stream_url = format!(
+        "{}/api/odds/stream",
+        config.txline_api_origin.trim_end_matches('/')
+    );
     let response = match client
         .get(stream_url)
         .bearer_auth(jwt)

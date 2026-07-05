@@ -1,0 +1,13 @@
+[agent]
+name = "verifier-agent"
+version = "0.1.0"
+role = "verifier"
+service = "delivery.verify"
+description = "Independent delivery verifier for hash-bound TxLINE market outputs."
+readme = "Checks content hash, fixture binding, proof shape, and policy compatibility. Holds no keys and moves no funds."
+
+[defaults]
+VERIFY_HASH = "true"
+VERIFY_FIXTURE_BINDING = "true"
+VERIFY_TXLINE_PROOF = "true"
+VERIFY_POLICY = "true"

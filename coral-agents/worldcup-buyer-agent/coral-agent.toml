@@ -1,0 +1,14 @@
+[agent]
+name = "worldcup-buyer-agent"
+version = "0.1.0"
+role = "buyer"
+service = "txline"
+description = "Broadcasts WANTs from TxLINE triggers, collects bids, awards the best seller, and starts policy-gated settlement."
+readme = "The desktop app drives this buyer role. It never signs transactions from the webview; settlement is delegated to the Rust/CoralOS sidecar path."
+
+[defaults]
+BUYER_MAX_SOL = "0.001"
+BID_WINDOW_MS = "5000"
+VERIFY_WINDOW_MS = "20000"
+VERIFIER_AGENT = "verifier-agent"
+REPUTATION_SOURCE = "sqlite-ledger"

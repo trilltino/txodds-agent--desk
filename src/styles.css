@@ -21,6 +21,10 @@ h2, h3 { margin: 0; }
 .event { width: 100%; text-align: left; background: #12172a; border: 1px solid #232a45; color: #f7f7fb; display: grid; gap: 5px; }
 .event.selected { border-color: #70e1c8; }
 .event span, .event small { color: #a8b1d8; }
+.agentRoster { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0 14px; }
+.agentChip { border: 1px solid #28304f; border-radius: 10px; background: #101525; padding: 9px 10px; display: grid; gap: 3px; min-width: 0; }
+.agentChip strong { font-size: 12px; overflow-wrap: anywhere; }
+.agentChip span { color: #9fb3dd; font-size: 11px; overflow-wrap: anywhere; }
 .bid { display: grid; grid-template-columns: 1fr auto; gap: 16px; padding: 14px; margin: 10px 0; border: 1px solid #27304e; border-radius: 16px; background: #11162a; }
 .bid.winner { border-color: #70e1c8; box-shadow: 0 0 0 1px #70e1c844 inset; }
 .bid p { margin: 6px 0 0; color: #a8b1d8; }

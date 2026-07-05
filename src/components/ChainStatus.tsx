@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { Cluster, ChainStatus } from '../lib/triton'
-import { watchSlots } from '../lib/triton'
+import type { Cluster, ChainStatus } from '../domain/triton/client'
+import { watchSlots } from '../domain/triton/client'
 
 type Entry = { status?: ChainStatus; error?: string }
 

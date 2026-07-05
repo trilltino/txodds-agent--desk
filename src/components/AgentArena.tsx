@@ -1,14 +1,35 @@
-import type { AgentRun, TrackMode } from '../types'
-import { scoreBid } from '../lib/scoring'
+import type { AgentRun, CoralAgentManifest, TrackMode } from '../types'
+import { scoreBid } from '../domain/coral/scoring'
 
-export function AgentArena({ run, track, onRun }: { run?: AgentRun; track: TrackMode; onRun: () => void }) {
+export function AgentArena({
+  agents,
+  run,
+  track,
+  onRun
+}: {
+  agents: CoralAgentManifest[]
+  run?: AgentRun
+  track: TrackMode
+  onRun: () => void
+}) {
+  const activeIds = new Set(run?.bids.map((bid) => bid.agentId) ?? [])
+  const activeAgents = agents.filter((agent) => agent.coralRole === 'buyer' || activeIds.has(agent.id))
+
   return (
     <article className="card">
       <div className="cardHead">
-        <h2>Agent arena</h2>
+        <h2>Coral market</h2>
         <span className="pill">{track}</span>
       </div>
-      {!run ? <p className="muted">Start a round to see specialist agents bid.</p> : null}
+      <div className="agentRoster">
+        {activeAgents.map((agent) => (
+          <div key={agent.id} className="agentChip" title={agent.manifestPath}>
+            <strong>{agent.id}</strong>
+            <span>{agent.coralRole} · {agent.service}</span>
+          </div>
+        ))}
+      </div>
+      {!run ? <p className="muted">Start a round to see Coral sellers bid on the buyer WANT.</p> : null}
       {run?.bids.map((bid) => (
         <div key={bid.agentId} className={run.winner?.agentId === bid.agentId ? 'bid winner' : 'bid'}>
           <div>

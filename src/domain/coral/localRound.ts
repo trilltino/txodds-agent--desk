@@ -1,8 +1,8 @@
-import type { AgentDelivery, AgentRun, TrackMode, TxLineEvent, VerificationVerdict } from '../types'
-import { emptyRun } from './mock'
-import { generateBids } from './strategies'
+import type { AgentDelivery, AgentRun, TrackMode, TxLineEvent, VerificationVerdict } from '../../types'
+import { emptyRun } from '../txline/mock'
+import { generateBids } from './bidding'
 import { chooseWinner } from './scoring'
-import { observeSettlement } from './triton'
+import { observeSettlement } from '../triton/client'
 
 async function sha256Hex(text: string): Promise<string> {
   const bytes = new TextEncoder().encode(text)
@@ -12,7 +12,7 @@ async function sha256Hex(text: string): Promise<string> {
 
 export async function runLocalAgentRound(event: TxLineEvent, track: TrackMode): Promise<AgentRun> {
   const run = emptyRun(event, track)
-  run.timeline.push({ at: new Date().toISOString(), label: 'WANT', detail: `buyer asks for ${track} output on fixture ${event.fixtureId}` })
+  run.timeline.push({ at: new Date().toISOString(), label: 'WANT', detail: `worldcup-buyer-agent asks for ${track} output on fixture ${event.fixtureId}` })
 
   run.bids = generateBids(event, track)
   run.timeline.push({ at: new Date().toISOString(), label: 'BID', detail: `${run.bids.length} specialist agents bid` })

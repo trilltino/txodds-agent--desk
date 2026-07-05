@@ -20,7 +20,11 @@ impl SettlementBridge {
         Self { sidecar_path }
     }
 
-    pub async fn settle_run(&self, config: &AppConfig, run: &AgentRun) -> Result<SettlementReceipt, AppError> {
+    pub async fn settle_run(
+        &self,
+        config: &AppConfig,
+        run: &AgentRun,
+    ) -> Result<SettlementReceipt, AppError> {
         if !config.coralos_settlement_enabled {
             return Err(AppError::Config("CORALOS_SETTLEMENT_ENABLED=0".to_string()));
         }
@@ -64,11 +68,9 @@ impl SettlementBridge {
 
         let response = invoke_sidecar(&self.sidecar_path, &request).await?;
         if !response.ok {
-            return Err(AppError::Task(
-                response
-                    .error
-                    .unwrap_or_else(|| "CoralOS sidecar returned ok=false".to_string()),
-            ));
+            return Err(AppError::Task(response.error.unwrap_or_else(|| {
+                "CoralOS sidecar returned ok=false".to_string()
+            })));
         }
         Ok(response.into_receipt(amount_sol))
     }
@@ -121,7 +123,10 @@ impl SidecarResponse {
     }
 }
 
-async fn invoke_sidecar(sidecar_path: &Path, request: &SidecarRequest) -> Result<SidecarResponse, AppError> {
+async fn invoke_sidecar(
+    sidecar_path: &Path,
+    request: &SidecarRequest,
+) -> Result<SidecarResponse, AppError> {
     let node = resolve_node_bin(sidecar_path);
     let mut child = Command::new(node)
         .arg(sidecar_path)
@@ -145,10 +150,13 @@ async fn invoke_sidecar(sidecar_path: &Path, request: &SidecarRequest) -> Result
     drop(stdin);
 
     let mut reader = BufReader::new(stdout).lines();
-    let response_line = tokio::time::timeout(std::time::Duration::from_secs(90), reader.next_line())
-        .await
-        .map_err(|_| AppError::Task("CoralOS sidecar timed out".to_string()))??
-        .ok_or_else(|| AppError::Task("CoralOS sidecar exited without a response".to_string()))?;
+    let response_line =
+        tokio::time::timeout(std::time::Duration::from_secs(90), reader.next_line())
+            .await
+            .map_err(|_| AppError::Task("CoralOS sidecar timed out".to_string()))??
+            .ok_or_else(|| {
+                AppError::Task("CoralOS sidecar exited without a response".to_string())
+            })?;
 
     let _ = child.wait().await;
     Ok(serde_json::from_str::<SidecarResponse>(&response_line)?)

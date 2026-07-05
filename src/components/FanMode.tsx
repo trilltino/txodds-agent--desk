@@ -1,5 +1,5 @@
 import type { AgentRun, TxLineEvent } from '../types'
-import { exportFanCardNative, native } from '../lib/transport'
+import { exportFanCardNative, native } from '../desktop/transport'
 
 export function FanMode({ run, selectedEvent }: { run?: AgentRun; selectedEvent: TxLineEvent }) {
   const payload = run?.delivery?.fanCopy ?? selectedEvent.body
