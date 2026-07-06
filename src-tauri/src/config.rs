@@ -20,6 +20,7 @@ pub struct AppConfig {
     pub txline_network: String,
     pub txline_guest_jwt: Option<String>,
     pub txline_api_token: Option<String>,
+    pub txline_program_id: Option<String>,
     pub solana_cluster: String,
     pub triton_devnet_rpc: Option<String>,
     pub triton_devnet_token: Option<String>,
@@ -77,6 +78,7 @@ impl AppConfig {
             txline_network: env_or_default("TXLINE_NETWORK", "devnet"),
             txline_guest_jwt: secret("TXLINE_GUEST_JWT", "txline_guest_jwt"),
             txline_api_token: secret("TXLINE_API_TOKEN", "txline_api_token"),
+            txline_program_id: optional_env("TXLINE_PROGRAM_ID"),
             solana_cluster: env_or_default("SOLANA_CLUSTER", "devnet"),
             triton_devnet_rpc: optional_env("TRITON_DEVNET_RPC"),
             triton_devnet_token: secret("TRITON_DEVNET_TOKEN", "triton_devnet_token"),
@@ -124,6 +126,20 @@ impl AppConfig {
             coralos_configured: self.coralos_settlement_enabled
                 && (self.coralos_bridge_url.is_some() || self.coralos_root.is_some()),
             axum_enabled: self.axum_enabled,
+        }
+    }
+
+    // The txoracle program publishing TxLINE proof roots on-chain. Explicit env
+    // wins; otherwise derive from the configured TxLINE network so Yellowstone
+    // can watch the same oracle the data feed comes from.
+    pub fn txline_program_id(&self) -> String {
+        if let Some(id) = &self.txline_program_id {
+            return id.clone();
+        }
+        if self.txline_network.eq_ignore_ascii_case("mainnet") {
+            "9ExbZjAapQww1vfcisDmrngPinHTEfpjYRWMunJgcKaA".to_string()
+        } else {
+            "6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J".to_string()
         }
     }
 

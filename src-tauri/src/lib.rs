@@ -790,11 +790,15 @@ pub fn run() {
                 resolve_named_sidecar_path(app, "yellowstone-bridge.mjs");
             let yellowstone =
                 if config.triton_grpc_endpoint.is_some() && config.triton_x_token.is_some() {
-                    Some(triton::yellowstone::spawn(
+                    let handle = triton::yellowstone::spawn(
                         app.handle().clone(),
                         config.clone(),
                         yellowstone_sidecar_path,
-                    ))
+                    );
+                    // Watch the txoracle program from the start so TxLINE proof
+                    // roots landing on-chain stream in as chain://tx events.
+                    handle.watch_program(config.txline_program_id());
+                    Some(handle)
                 } else {
                     None
                 };
