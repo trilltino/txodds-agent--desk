@@ -1,0 +1,1177 @@
+/* ============================================================
+   AGENT TRACK — operator dashboard for the Intelligence Agent
+   page. Uses the app's base light theme (--pitch, --trophy).
+   All component class names are verified against their TSX.
+   ============================================================ */
+
+/* ── Layout ───────────────────────────────────────────────── */
+
+.agentPageGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.agentTopRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.agentMidRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 860px) {
+  .agentTopRow,
+  .agentMidRow { grid-template-columns: 1fr; }
+}
+
+/* ── Status / P&L colour tokens ───────────────────────────── */
+
+.pnlPositive { color: #14532d; font-weight: 600; }
+.pnlNegative { color: #9f1239; font-weight: 600; }
+.win  { color: #14532d; }
+.loss { color: #9f1239; }
+
+/* ── Pill modifier variants ───────────────────────────────── */
+/* Scoped to .agentPageGrid to beat the base .agent .pill rule */
+
+.agentPageGrid .pill.pillDanger {
+  background: #fef2f2;
+  color: #be123c;
+  border-color: #fecdd3;
+}
+
+.agentPageGrid .pill.pillWarning {
+  background: #fffbeb;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+.agentPageGrid .pill.pillSuccess {
+  background: #f0fdf4;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+
+.agentPageGrid .pill.pillPnlPositive {
+  background: #f0fdf4;
+  color: #14532d;
+  border-color: #bbf7d0;
+}
+
+.agentPageGrid .pill.pillPnlNegative {
+  background: #fff1f2;
+  color: #9f1239;
+  border-color: #fecdd3;
+}
+
+.agentPageGrid .pill.outcomeWin {
+  background: #f0fdf4;
+  color: #14532d;
+  border-color: #bbf7d0;
+}
+
+.agentPageGrid .pill.outcomeLoss {
+  background: #fff1f2;
+  color: #9f1239;
+  border-color: #fecdd3;
+}
+
+.agentPageGrid .pill.outcomePending {
+  background: #f8fafc;
+  color: #64748b;
+  border-color: #e2e8f0;
+}
+
+.agentPageGrid .pill.phaseToolCall {
+  background: #f0fdf4;
+  color: #14532d;
+  border-color: #bbf7d0;
+}
+
+.agentPageGrid .pill.phaseDecision {
+  background: #fff1f2;
+  color: #be123c;
+  border-color: #fecdd3;
+}
+
+/* ── Shared safety progress bars ──────────────────────────── */
+
+.safetyBar {
+  flex: 1;
+  height: 5px;
+  background: #e4ebe5;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.safetyBarFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease, background 0.3s ease;
+}
+
+/* Row layouts shared between roster, safety monitor, and leaderboard */
+.safetyRow,
+.safetyMetricRow,
+.lbRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.safetyLabel,
+.safetyMetricLabel,
+.lbLabel {
+  width: 4.5rem;
+  font-size: 0.68rem;
+  color: var(--muted, #60706a);
+  flex-shrink: 0;
+}
+
+.safetyCount,
+.safetyMetricVal {
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink, #13211c);
+  white-space: nowrap;
+  font-family: ui-monospace, monospace;
+}
+
+/* ── Kill-switch action buttons ───────────────────────────── */
+/* Scoped to .agentPageGrid to reliably beat the base button element rule */
+
+.agentPageGrid .killBtn {
+  font-size: 0.7rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 5px;
+  border: 1px solid #fca5a5;
+  background: #fff1f2;
+  color: #be123c;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.agentPageGrid .killBtn:hover {
+  background: #ffe4e6;
+  border-color: #f87171;
+}
+
+.agentPageGrid .killConfirm {
+  font-size: 0.7rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 5px;
+  border: 1px solid #f87171;
+  background: #fee2e2;
+  color: #9f1239;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.agentPageGrid button.secondary {
+  font-size: 0.7rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 5px;
+  border: 1px solid #d6dfd8;
+  background: #ffffff;
+  color: var(--muted, #60706a);
+  cursor: pointer;
+}
+
+/* ── Agent Roster Panel ───────────────────────────────────── */
+
+.agentRosterGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 0.75rem;
+}
+
+.agentCard {
+  background: #f6f9f6;
+  border: 1px solid #d6dfd8;
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.agentCardKilled {
+  opacity: 0.6;
+  border-color: #fca5a5;
+  background: #fff9f9;
+}
+
+.agentCardHead {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.capBadge {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: #eef5ff;
+  color: #164ea6;
+  border: 1px solid #bcd1f4;
+}
+
+.strategyLabel {
+  font-size: 0.65rem;
+  color: var(--muted, #60706a);
+  margin-left: auto;
+}
+
+.agentCardSafety {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+/* Leaderboard mini-stats section inside each agent card */
+.agentCardLeaderboard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid #e4ebe5;
+}
+
+.lbStatsRow {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+/* lbStat is used as an inline span within lbStatsRow */
+.agentCardLeaderboard .lbStat {
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted, #60706a);
+}
+
+.agentCardActions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+  flex-wrap: wrap;
+}
+
+/* ── Safety Gate Monitor ──────────────────────────────────── */
+
+.safetyGateList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.safetyGateRow {
+  background: #f6f9f6;
+  border: 1px solid #d6dfd8;
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+}
+
+.safetyGateKilled {
+  border-color: #fca5a5;
+  background: #fff5f5;
+}
+
+.safetyGateWarn {
+  border-color: #fcd34d;
+  background: #fffef5;
+}
+
+.safetyGateHead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.killSwitchDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.safetyAgentId {
+  flex: 1;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink, #13211c);
+}
+
+.safetyMetrics {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+
+.safetyActions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+/* ── Arena Scoreboard ─────────────────────────────────────── */
+
+.leaderBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.9rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.75rem;
+  border: 1px solid #d6dfd8;
+  background: #f6f9f6;
+  color: var(--muted, #60706a);
+}
+
+.leaderBadge--follow { background: #eef5ff; color: #164ea6; border-color: #bcd1f4; }
+.leaderBadge--fade   { background: #f5f3ff; color: #5b21b6; border-color: #c4b5fd; }
+.leaderBadge--tie    { background: #f6f9f6; color: var(--muted, #60706a); border-color: #d6dfd8; }
+
+.arenaScoreboard {
+  display: flex;
+  align-items: stretch;
+  background: #f6f9f6;
+  border: 1px solid #d6dfd8;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+
+.arenaCol {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.85rem 1rem;
+}
+
+.arenaCol--follow { border-right: 1px solid #d6dfd8; }
+
+.arenaColLabel {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted, #60706a);
+}
+
+.arenaWL {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.arenaDivider {
+  width: 1px;
+  background: #d6dfd8;
+  flex-shrink: 0;
+}
+
+.arenaPnl {
+  font-size: 0.875rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Per-strategy leaderboard hints inside scoreboard columns */
+.arenaLbHint {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin-top: 0.25rem;
+}
+
+.arenaLbStat {
+  font-size: 0.63rem;
+  color: var(--muted, #60706a);
+}
+
+.recentSettlements {
+  border-top: 1px solid #e4ebe5;
+  padding-top: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.sectionLabel {
+  display: block;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted, #60706a);
+  margin-bottom: 0.4rem;
+}
+
+.settlementList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.settlementRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 5px;
+  background: #ffffff;
+  border: 1px solid #e4ebe5;
+}
+
+.settlementFixture {
+  font-family: ui-monospace, monospace;
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted, #60706a);
+  flex-shrink: 0;
+}
+
+.settlementMarket {
+  flex: 1;
+  color: var(--ink, #13211c);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7rem;
+}
+
+.settlementStrategy { font-size: 0.63rem; }
+
+.settlementResult {
+  font-weight: 800;
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+}
+
+/* ── Arena Position Feed ──────────────────────────────────── */
+
+.filterTabs {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.filterTab {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.25rem 0.6rem;
+  border-radius: 5px;
+  border: 1px solid #d6dfd8;
+  background: #ffffff;
+  color: var(--muted, #60706a);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.filterTabActive {
+  background: #eef5ff;
+  color: #164ea6;
+  border-color: #bcd1f4;
+}
+
+.positionTableWrap { overflow-x: auto; }
+
+.positionTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.73rem;
+}
+
+.positionTable th {
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  color: var(--muted, #60706a);
+  font-weight: 700;
+  font-size: 0.63rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-bottom: 1px solid #d6dfd8;
+  white-space: nowrap;
+}
+
+.positionTable td {
+  padding: 0.35rem 0.5rem;
+  color: var(--ink, #13211c);
+  border-bottom: 1px solid #f0f4f0;
+  vertical-align: middle;
+}
+
+.positionTable tr:last-child td { border-bottom: none; }
+
+.positionRow--follow td:first-child { border-left: 2px solid #164ea6; }
+.positionRow--fade   td:first-child { border-left: 2px solid #7c3aed; }
+
+.directionBadge {
+  font-size: 0.63rem;
+  font-weight: 700;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.directionBadge--with    { background: #f0fdf4; color: #14532d; }
+.directionBadge--against { background: #fff7ed; color: #9a3412; }
+
+.confidenceBarWrap {
+  width: 56px;
+  height: 5px;
+  background: #e4ebe5;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.confidenceBarFill {
+  height: 100%;
+  background: var(--pitch, #0b5a3c);
+  border-radius: 3px;
+}
+
+.monoSmall {
+  font-family: ui-monospace, monospace;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.txBadge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 0.05rem 0.22rem;
+  border-radius: 3px;
+  background: #fff8e7;
+  color: #9f6c00;
+  border: 1px solid #edd28a;
+  margin-left: 0.25rem;
+  vertical-align: middle;
+}
+
+.positionSelection { font-weight: 500; }
+
+/* ── Signal Intelligence Panel ────────────────────────────── */
+
+.signalList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.signalRow {
+  background: #f6f9f6;
+  border: 1px solid #d6dfd8;
+  border-radius: 7px;
+  padding: 0.5rem 0.65rem;
+}
+
+.signalRowMain {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.oddsDirectionBadge {
+  font-size: 0.63rem;
+  font-weight: 800;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.oddsDirectionBadge--shortened { background: #f0fdf4; color: #14532d; }
+.oddsDirectionBadge--lengthened { background: #fff7ed; color: #9a3412; }
+
+.signalMeta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.signalMeta strong {
+  font-size: 0.8rem;
+  color: var(--ink, #13211c);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.signalMarket {
+  font-size: 0.67rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted, #60706a);
+}
+
+.signalStats {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-shrink: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.7rem;
+  color: var(--ink, #13211c);
+}
+
+.signalCorrectnessWrap { flex-shrink: 0; }
+
+.correctIcon  { color: #14532d; font-size: 0.9rem; font-weight: 700; }
+.reversedIcon { color: #9a3412; font-size: 0.9rem; }
+
+.narrativeToggle {
+  font-size: 0.62rem;
+  background: #ffffff;
+  border: 1px solid #d6dfd8;
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+  color: var(--muted, #60706a);
+  cursor: pointer;
+}
+
+.narrativeExpander {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #e4ebe5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.narrativeLabel {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--trophy, #c99724);
+}
+
+.narrativeNote { font-size: 0.63rem; font-style: italic; }
+
+.narrativeText {
+  font-size: 0.73rem;
+  color: var(--ink, #13211c);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ── Capability Token Panel ───────────────────────────────── */
+
+.capPanelSubtitle {
+  font-size: 0.72rem;
+  color: var(--muted, #60706a);
+  margin-bottom: 0.75rem;
+  line-height: 1.5;
+}
+
+.capTokenGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.65rem;
+}
+
+@media (max-width: 640px) {
+  .capTokenGrid { grid-template-columns: 1fr; }
+}
+
+.capCard {
+  background: #f6f9f6;
+  border: 1px solid #d6dfd8;
+  border-left: 3px solid #d6dfd8;
+  border-radius: 8px;
+  padding: 0.7rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.capCard--follow { border-left-color: #164ea6; }
+.capCard--fade   { border-left-color: #7c3aed; }
+.capCard--settle { border-left-color: var(--trophy, #c99724); }
+.capCard--detect { border-left-color: var(--pitch, #0b5a3c); }
+
+.capCardHead {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.capTokenBadge {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: #e4ebe5;
+  color: var(--ink, #13211c);
+}
+
+.capCard--follow .capTokenBadge { background: #eef5ff; color: #164ea6; }
+.capCard--fade   .capTokenBadge { background: #f5f3ff; color: #5b21b6; }
+.capCard--settle .capTokenBadge { background: #fff8e7; color: #9f6c00; }
+.capCard--detect .capTokenBadge { background: #f0fdf4; color: #14532d; }
+
+.capZSTBadge {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.05rem 0.28rem;
+  border-radius: 3px;
+  background: #f3f6ef;
+  color: var(--muted, #60706a);
+  border: 1px solid #d6dfd8;
+}
+
+.capCardFull {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ink, #13211c);
+}
+
+.capCardAgent {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.capAgentDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.capAgentId {
+  font-size: 0.72rem;
+  color: var(--ink, #13211c);
+  font-weight: 500;
+  font-family: ui-monospace, monospace;
+}
+
+.capAgentStatus {
+  font-size: 0.65rem;
+  color: var(--muted, #60706a);
+}
+
+.capCardDesc {
+  font-size: 0.67rem;
+  color: var(--muted, #60706a);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.capLeaderboardHint {
+  padding-top: 0.3rem;
+  border-top: 1px solid #e4ebe5;
+  font-size: 0.63rem;
+  color: var(--muted, #60706a);
+}
+
+/* ── Tool Call Audit Log ──────────────────────────────────── */
+
+.tcAuditList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tcRow {
+  display: flex;
+  flex-direction: column;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid #f0f4f0;
+  border-left: 3px solid transparent;
+  transition: background 0.1s;
+}
+
+.tcRow:hover { background: #f8faf8; }
+.tcRow:last-child { border-bottom: none; }
+
+.tcRow--blocked  { border-left-color: #f59e0b; }
+.tcRow--failed   { border-left-color: #be123c; background: #fffafa; }
+.tcRow--timedOut { border-left-color: #d97706; }
+.tcRow--success  { border-left-color: transparent; }
+.tcRow--pending  { opacity: 0.72; }
+
+.tcRowMain {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.tcToolIcon { flex-shrink: 0; font-size: 0.8rem; }
+
+.tcToolName {
+  font-family: ui-monospace, monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--pitch, #0b5a3c);
+  flex-shrink: 0;
+}
+
+.tcAgentId {
+  font-size: 0.65rem;
+  color: var(--muted, #60706a);
+  flex-shrink: 0;
+}
+
+.tcCapGranted {
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 0.05rem 0.22rem;
+  border-radius: 3px;
+  background: #f0fdf4;
+  color: #14532d;
+  border: 1px solid #bbf7d0;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.tcCapDenied {
+  font-size: 0.58rem;
+  font-weight: 700;
+  padding: 0.05rem 0.22rem;
+  border-radius: 3px;
+  background: #fff1f2;
+  color: #be123c;
+  border: 1px solid #fecdd3;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.tcIdemKey {
+  font-family: ui-monospace, monospace;
+  font-size: 0.62rem;
+  color: var(--muted, #60706a);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.tcOutcomePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.tcOutcome--pending  { background: #f8fafc; color: #64748b;  border-color: #e2e8f0; }
+.tcOutcome--success  { background: #f0fdf4; color: #14532d;  border-color: #bbf7d0; }
+.tcOutcome--blocked  { background: #fffbeb; color: #92400e;  border-color: #fde68a; }
+.tcOutcome--failed   { background: #fff1f2; color: #be123c;  border-color: #fecdd3; }
+.tcOutcome--timedOut { background: #fff7ed; color: #9a3412;  border-color: #fed7aa; }
+
+.tcTime {
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted, #60706a);
+  flex-shrink: 0;
+}
+
+.tcExpandBtn {
+  font-size: 0.6rem;
+  background: transparent;
+  border: 1px solid #d6dfd8;
+  border-radius: 3px;
+  padding: 0.05rem 0.25rem;
+  color: var(--muted, #60706a);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tcDetailExpander {
+  margin-top: 0.3rem;
+  padding: 0.3rem 0.4rem 0.3rem 1.2rem;
+  background: #f6f9f6;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.tcDetailLabel {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--muted, #60706a);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tcDetailText {
+  font-size: 0.67rem;
+  font-family: ui-monospace, monospace;
+  color: var(--ink, #13211c);
+  background: #ffffff;
+  border: 1px solid #d6dfd8;
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 100px;
+  overflow-y: auto;
+}
+
+/* ── Agent Trace Panel ────────────────────────────────────── */
+
+.tracePanel { max-height: none; }
+
+/* Override the base .traceList two-column grid for agent trace items.
+   .traceListFull .traceItem wins over base .traceList li (0,2,0 > 0,1,1). */
+.traceListFull {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.traceListFull .traceItem {
+  display: flex;
+  flex-direction: column;
+  padding: 0.3rem 0.5rem;
+  border-left: 3px solid transparent;
+  transition: background 0.1s;
+}
+
+.traceListFull .traceItem:hover { background: #f8faf8; }
+
+.traceItemHead {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+}
+
+.tracePhaseIcon { font-size: 0.85rem; flex-shrink: 0; }
+
+.tracePhaseLabel {
+  width: 6.5rem;
+  flex-shrink: 0;
+  font-size: 0.63rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, #60706a);
+}
+
+.traceSummary {
+  flex: 1;
+  color: var(--ink, #13211c);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.traceRound {
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted, #60706a);
+  flex-shrink: 0;
+}
+
+.traceExpandBtn {
+  font-size: 0.6rem;
+  background: transparent;
+  border: 1px solid #d6dfd8;
+  border-radius: 3px;
+  padding: 0.05rem 0.25rem;
+  color: var(--muted, #60706a);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.tracePayload {
+  margin: 0.3rem 0 0.2rem 1.5rem;
+  font-size: 0.63rem;
+  font-family: ui-monospace, monospace;
+  color: var(--ink, #13211c);
+  background: #f6f9f6;
+  border: 1px solid #d6dfd8;
+  border-radius: 5px;
+  padding: 0.4rem 0.6rem;
+  overflow-x: auto;
+  max-height: 180px;
+  white-space: pre;
+}
+
+/* Phase colour accents (left border on trace items) */
+.traceListFull .phaseObserve    { border-left-color: #164ea6; }
+.traceListFull .phaseDerive     { border-left-color: #7c3aed; }
+.traceListFull .phaseToolCall   { border-left-color: var(--pitch, #0b5a3c); }
+.traceListFull .phaseToolResult { border-left-color: #0891b2; }
+.traceListFull .phaseLlm        { border-left-color: var(--trophy, #c99724); }
+.traceListFull .phaseDecision   { border-left-color: #be123c; }
+.traceListFull .phaseAction     { border-left-color: #9333ea; }
+.traceListFull .phaseProof      { border-left-color: #4338ca; }
+.traceListFull .phasePayment    { border-left-color: #0b5a3c; }
+.traceListFull .phaseEvaluation { border-left-color: #0284c7; }
+
+.traceItemSafety {
+  border-left-color: #f59e0b !important;
+  background: #fffdf5;
+}
+
+.traceLoadMore {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
+  text-align: center;
+  font-size: 0.73rem;
+}
+
+/* ── Tool Call / Trace collapsible drawers ────────────────── */
+
+.traceDrawer { margin-top: 0.5rem; }
+
+.traceDrawerToggle {
+  display: flex;
+  align-items: center;
+  list-style: none;
+  cursor: pointer;
+  padding: 0.5rem 0.75rem;
+  border-radius: 7px;
+  background: #f6f9f6;
+  border: 1px solid #d6dfd8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink, #13211c);
+  user-select: none;
+  transition: background 0.1s;
+}
+
+.traceDrawerToggle:hover { background: #eef3ee; }
+.traceDrawerToggle::-webkit-details-marker { display: none; }
+
+.traceDrawerToggle::before {
+  content: '▶';
+  font-size: 0.6rem;
+  margin-right: 0.5rem;
+  color: var(--muted, #60706a);
+  transition: transform 0.15s;
+}
+
+.traceDrawer[open] .traceDrawerToggle::before {
+  transform: rotate(90deg);
+}
+
+/* ── Wager Panel (rig-venice ROADMAP.md Phase 4-5) ───────────────────────── */
+
+.wagerCardList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.75rem;
+}
+
+.wagerCard {
+  background: #f6f9f6;
+  border: 1px solid #d6dfd8;
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.wagerCardHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.wagerCardStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  font-size: 0.78rem;
+}
+
+.wagerCardThesis {
+  font-size: 0.82rem;
+  margin: 0;
+}
+
+.analyzeControl {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.wagerPaymentApproval {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid #e4ebe5;
+}
+
+.wagerPaymentStatusRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wagerPaymentLink {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #164ea6;
+  text-decoration: underline;
+}

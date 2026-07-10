@@ -1,0 +1,4 @@
+# Agent safety: unwrap/expect/todo are banned on all paths touching model
+# output, tool-call arguments, or external API responses. (Checklist §9, §40)
+# MSRV aligned to rust-toolchain.toml channel.
+msrv = "1.89.0"

@@ -1,0 +1,11 @@
+[toolchain]
+# 1.89.0 covers edition2024 (stable since 1.85) and the icu_*/idna_adapter
+# crates that require ≥1.86.  Pinned for reproducible builds — Checklist §3.
+channel = "1.89.0"
+# rust-src: needed by cargo-llvm-cov and build-std for std-aware LTO.
+components = ["rustfmt", "clippy", "rust-src"]
+targets = [
+  "x86_64-pc-windows-msvc",   # primary: Windows desktop shipping target
+  "x86_64-unknown-linux-gnu", # CI / Linux cross-check
+  "wasm32-unknown-unknown",   # future wasm build
+]

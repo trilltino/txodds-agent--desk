@@ -1,0 +1,58 @@
+[package]
+# Tauri backend crate for the desktop app.
+name = "txodds-agent-desk"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+# Tauri builds the Rust core as several crate types for desktop/mobile targets.
+name = "txodds_agent_desk_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+# Generates Tauri context and platform resources at build time.
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Desktop runtime and native plugins.
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-notification = "2"
+# Serialization and typed IPC/event payloads.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Backend-owned HTTP clients for Triton, TxLINE, and sidecar-adjacent calls.
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+# Async runtime used by Tauri tasks, sidecar supervision, SSE, and filesystem IO.
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+# Hash/reference helpers.
+sha2 = "0.10"
+hex = "0.4"
+# Optional loopback diagnostics service.
+axum = "0.8"
+# Encoding/time/config/streaming support.
+bs58 = "0.5"
+chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15"
+futures-util = "0.3"
+urlencoding = "2"
+# OS keychain support for packaged desktop secrets.
+keyring = "3"
+# Local SQLite ledger; bundled SQLite avoids system dependency drift.
+rusqlite = { version = "0.32", features = ["bundled"] }
+# Embedded key-value store for local user profile persistence (no server needed).
+sled = "0.34"
+# Ed25519 signature verification for wallet auth challenge/response.
+ed25519-dalek = "2"
+# CSPRNG bytes for Solana Pay reference key generation.
+getrandom = "0.2"
+# Error, stream, and id helpers.
+thiserror = "2"
+tokio-stream = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+# Standalone agent crates.
+txodds-types = { path = "../crates/txodds-types" }
+agent-core = { path = "../crates/agent-core" }
+rig-core = { version = "0.9", features = ["derive"] }
+rig-venice = { path = "../crates/rig-venice" }
+schemars = { version = "0.8", features = ["derive"] }

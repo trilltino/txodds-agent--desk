@@ -1,0 +1,41 @@
+[workspace]
+# Root workspace so that crates/ and native/ are all under one resolver.
+# `cargo test -p agent-core` works from the repo root; Tauri continues to be
+# built from native/ via `tauri build` / `tauri dev` as before.
+members = [
+    "native",
+    "crates/txodds-types",
+    "crates/agent-core",
+    "crates/rig-venice",
+    "crates/agents/match-intelligence",
+    "crates/agents/contrarian",
+    "crates/agents/arena-coordinator",
+    "crates/agents/sharp-movement-detector",
+]
+resolver = "2"
+
+# ── Release profile ───────────────────────────────────────────
+# Used by `tauri build` / `cargo build --release`.
+# thin-LTO: best balance of optimisation vs link time for a desktop binary.
+# codegen-units=1: single CGU enables full cross-crate inlining.
+# strip=symbols: removes debug info from the shipped binary (~40 % size drop).
+# panic=abort: removes unwinding machinery; safe for a Tauri desktop process.
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1
+strip         = "symbols"
+panic         = "abort"
+debug         = false
+incremental   = false
+
+# ── Dev profile ───────────────────────────────────────────────
+# Incremental compilation + light optimisation keeps iteration fast.
+[profile.dev]
+opt-level   = 1
+debug       = true
+incremental = true
+
+# Compile all *dependencies* at O2 even in dev so UI and proc-macros are snappy.
+[profile.dev.package."*"]
+opt-level = 2

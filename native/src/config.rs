@@ -1,0 +1,234 @@
+//! Runtime configuration and secret lookup.
+//!
+//! Development values come from `.env`; packaged/native secret values should
+//! come from the OS keychain. Only `PublicConfig` is ever serialized to the
+//! webview.
+
+use serde::Serialize;
+use uuid::Uuid;
+
+use crate::types::Cluster;
+
+// Windows Credential Manager service name used by the keyring crate.
+const KEYRING_SERVICE: &str = "World Cup Agent Desk";
+
+// Full backend configuration. This struct may contain credentials and must stay
+// on the Rust side of the Tauri IPC boundary.
+#[derive(Debug, Clone)]
+pub struct AppConfig {
+    pub txline_api_origin: String,
+    pub txline_network: String,
+    pub txline_guest_jwt: Option<String>,
+    pub txline_api_token: Option<String>,
+    pub txline_program_id: Option<String>,
+    pub solana_cluster: String,
+    pub rpc_devnet_endpoint: Option<String>,
+    pub rpc_devnet_token: Option<String>,
+    pub rpc_mainnet_endpoint: Option<String>,
+    pub rpc_mainnet_token: Option<String>,
+    pub grpc_endpoint: Option<String>,
+    pub grpc_x_token: Option<String>,
+    pub solana_pay_recipient: Option<String>,
+    pub solana_pay_spl_token: Option<String>,
+    pub solana_pay_default_amount_sol: f64,
+    pub watch_escrow_program_id: Option<String>,
+    pub watch_market_program_id: Option<String>,
+    pub watch_escrow_account: Option<String>,
+    pub coralos_root: Option<String>,
+    pub coralos_bridge_url: Option<String>,
+    // Retained for the dormant CoralOS settlement bridge, not the read-only
+    // Match Intelligence Agent path.
+    #[allow(dead_code)]
+    pub coralos_proxy_url: String,
+    pub coralos_server_url: String,
+    pub coralos_token: String,
+    pub coralos_namespace: String,
+    pub coralos_session_id: Option<String>,
+    pub coralos_console_enabled: bool,
+    #[allow(dead_code)]
+    pub coralos_sidecar_path: Option<String>,
+    pub coralos_settlement_enabled: bool,
+    pub llm_provider: String,
+    pub llm_model: String,
+    pub venice_api_key: Option<String>,
+    pub llm_trace: bool,
+    pub odds_move_trigger_pct: f64,
+    pub max_devnet_spend_sol: f64,
+    pub axum_enabled: bool,
+    pub axum_token: String,
+}
+
+// Redacted config returned to React. It exposes feature status and public
+// origins, never API tokens, JWTs, or private key material.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicConfig {
+    pub txline_api_origin: String,
+    pub txline_network: String,
+    pub solana_cluster: String,
+    pub odds_move_trigger_pct: f64,
+    pub max_devnet_spend_sol: f64,
+    pub txline_configured: bool,
+    pub rpc_configured: bool,
+    pub rpc_devnet_configured: bool,
+    pub rpc_mainnet_configured: bool,
+    pub yellowstone_configured: bool,
+    pub solana_pay_configured: bool,
+    pub coralos_configured: bool,
+    pub coralos_console_enabled: bool,
+    pub llm_configured: bool,
+    pub llm_provider: String,
+    pub llm_model: String,
+    pub axum_enabled: bool,
+}
+
+impl AppConfig {
+    // Load configuration once during Tauri setup. The random Axum token is
+    // per-process so loopback diagnostics cannot be reused across launches.
+    pub fn load() -> Self {
+        let _ = dotenvy::dotenv();
+
+        Self {
+            txline_api_origin: env_or_default("TXLINE_API_ORIGIN", "https://txline-dev.txodds.com"),
+            txline_network: env_or_default("TXLINE_NETWORK", "devnet"),
+            txline_guest_jwt: secret("TXLINE_GUEST_JWT", "txline_guest_jwt"),
+            txline_api_token: secret("TXLINE_API_TOKEN", "txline_api_token"),
+            txline_program_id: optional_env("TXLINE_PROGRAM_ID"),
+            solana_cluster: env_or_default("SOLANA_CLUSTER", "devnet"),
+            rpc_devnet_endpoint: optional_env("TRITON_DEVNET_RPC"),
+            rpc_devnet_token: secret("TRITON_DEVNET_TOKEN", "triton_devnet_token"),
+            rpc_mainnet_endpoint: optional_env("TRITON_MAINNET_RPC"),
+            rpc_mainnet_token: secret("TRITON_MAINNET_TOKEN", "triton_mainnet_token"),
+            grpc_endpoint: optional_env("TRITON_GRPC_ENDPOINT"),
+            grpc_x_token: secret("TRITON_X_TOKEN", "triton_x_token"),
+            solana_pay_recipient: optional_env("SOLANA_PAY_RECIPIENT"),
+            solana_pay_spl_token: optional_env("SOLANA_PAY_SPL_TOKEN"),
+            solana_pay_default_amount_sol: number_env("SOLANA_PAY_DEFAULT_AMOUNT_SOL", 0.001),
+            watch_escrow_program_id: optional_env("WATCH_ESCROW_PROGRAM_ID"),
+            watch_market_program_id: optional_env("WATCH_MARKET_PROGRAM_ID"),
+            watch_escrow_account: optional_env("WATCH_ESCROW_ACCOUNT"),
+            coralos_root: optional_env("CORALOS_ROOT"),
+            coralos_bridge_url: optional_env("CORALOS_BRIDGE_URL"),
+            coralos_proxy_url: env_or_default("CORALOS_TXODDS_PROXY", "http://localhost:8801"),
+            coralos_server_url: env_or_default("CORAL_SERVER_URL", "http://localhost:5555"),
+            coralos_token: env_or_default("CORAL_TOKEN", "dev"),
+            coralos_namespace: env_or_default("CORALOS_NAMESPACE", "default"),
+            coralos_session_id: optional_env("CORALOS_SESSION_ID"),
+            coralos_console_enabled: bool_env("CORALOS_CONSOLE_ENABLED", true),
+            coralos_sidecar_path: optional_env("CORALOS_SIDECAR_PATH"),
+            coralos_settlement_enabled: bool_env("CORALOS_SETTLEMENT_ENABLED", true),
+            llm_provider: env_or_default("LLM_PROVIDER", "venice"),
+            llm_model: env_or_default("LLM_MODEL", "default"),
+            venice_api_key: secret("VENICE_API_KEY", "venice_api_key"),
+            llm_trace: bool_env("LLM_TRACE", bool_env("TRACE", false)),
+            odds_move_trigger_pct: number_env("ODDS_MOVE_TRIGGER_PCT", 5.0),
+            max_devnet_spend_sol: number_env("MAX_DEVNET_SPEND_SOL", 0.05),
+            axum_enabled: bool_env("DESK_AXUM_ENABLED", false),
+            axum_token: Uuid::new_v4().to_string(),
+        }
+    }
+
+    // Collapse full config into a safe public view for get_config.
+    pub fn public(&self) -> PublicConfig {
+        PublicConfig {
+            txline_api_origin: self.txline_api_origin.clone(),
+            txline_network: self.txline_network.clone(),
+            solana_cluster: self.solana_cluster.clone(),
+            odds_move_trigger_pct: self.odds_move_trigger_pct,
+            max_devnet_spend_sol: self.max_devnet_spend_sol,
+            txline_configured: self.txline_guest_jwt.is_some() && self.txline_api_token.is_some(),
+            rpc_configured: self.rpc_pair_configured(Cluster::Devnet)
+                || self.rpc_pair_configured(Cluster::Mainnet),
+            rpc_devnet_configured: self.rpc_pair_configured(Cluster::Devnet),
+            rpc_mainnet_configured: self.rpc_pair_configured(Cluster::Mainnet),
+            yellowstone_configured: self.grpc_endpoint.is_some()
+                && self.grpc_x_token.is_some(),
+            solana_pay_configured: self.solana_pay_recipient.is_some()
+                && self.solana_cluster.eq_ignore_ascii_case("devnet"),
+            coralos_configured: self.coralos_settlement_enabled
+                && (self.coralos_bridge_url.is_some() || self.coralos_root.is_some()),
+            coralos_console_enabled: self.coralos_console_enabled,
+            llm_configured: self.venice_api_key.is_some(),
+            llm_provider: self.llm_provider.clone(),
+            llm_model: self.llm_model.clone(),
+            axum_enabled: self.axum_enabled,
+        }
+    }
+
+    // The txoracle program publishing TxLINE proof roots on-chain. Explicit env
+    // wins; otherwise derive from the configured TxLINE network so Yellowstone
+    // can watch the same oracle the data feed comes from.
+    pub fn txline_program_id(&self) -> String {
+        if let Some(id) = &self.txline_program_id {
+            return id.clone();
+        }
+        if self.txline_network.eq_ignore_ascii_case("mainnet") {
+            "9ExbZjAapQww1vfcisDmrngPinHTEfpjYRWMunJgcKaA".to_string()
+        } else {
+            "6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J".to_string()
+        }
+    }
+
+    // RPC HTTP needs both endpoint and token for the selected cluster.
+    pub fn rpc_pair_configured(&self, cluster: Cluster) -> bool {
+        self.rpc_endpoint(cluster).is_some() && self.rpc_token(cluster).is_some()
+    }
+
+    // Return the cluster-specific HTTP endpoint without exposing it through
+    // PublicConfig.
+    pub fn rpc_endpoint(&self, cluster: Cluster) -> Option<&str> {
+        match cluster {
+            Cluster::Devnet => self.rpc_devnet_endpoint.as_deref(),
+            Cluster::Mainnet => self.rpc_mainnet_endpoint.as_deref(),
+        }
+    }
+
+    // Return the cluster-specific x-token from env/keyring.
+    pub fn rpc_token(&self, cluster: Cluster) -> Option<&str> {
+        match cluster {
+            Cluster::Devnet => self.rpc_devnet_token.as_deref(),
+            Cluster::Mainnet => self.rpc_mainnet_token.as_deref(),
+        }
+    }
+}
+
+// Environment helper with a string fallback for non-secret public settings.
+fn env_or_default(name: &str, fallback: &str) -> String {
+    optional_env(name).unwrap_or_else(|| fallback.to_string())
+}
+
+// Read an environment variable, trim whitespace, and treat empty strings as
+// missing so `.env` placeholders do not count as configured.
+fn optional_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+// Secret lookup prefers env for local dev and falls back to the OS keychain for
+// packaged desktop usage.
+fn secret(env_name: &str, key_name: &str) -> Option<String> {
+    optional_env(env_name).or_else(|| {
+        keyring::Entry::new(KEYRING_SERVICE, key_name)
+            .ok()
+            .and_then(|entry| entry.get_password().ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+// Boolean env parser deliberately accepts common truthy strings and otherwise
+// returns the provided fallback.
+fn bool_env(name: &str, fallback: bool) -> bool {
+    optional_env(name)
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(fallback)
+}
+
+// Numeric env parser keeps malformed values non-fatal by falling back.
+fn number_env(name: &str, fallback: f64) -> f64 {
+    optional_env(name)
+        .and_then(|value| value.parse::<f64>().ok())
+        .unwrap_or(fallback)
+}

@@ -1,0 +1,23 @@
+[package]
+name = "sharp-movement-detector"
+version = "0.1.0"
+edition = "2021"
+description = "Autonomous TxLINE sharp-odds-movement monitor with Venice LLM signal narration."
+
+[[bin]]
+name = "sharp-movement-detector"
+path = "src/main.rs"
+
+[dependencies]
+agent-core         = { path = "../../agent-core" }
+rig-core           = { version = "0.9", features = ["derive"] }
+rig-venice         = { path = "../../rig-venice" }
+tokio              = { version = "1", features = ["full"] }
+reqwest            = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+serde              = { version = "1", features = ["derive"] }
+serde_json         = "1"
+schemars           = { version = "0.8", features = ["derive"] }
+thiserror          = "1"
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid               = { version = "1", features = ["v4"] }

@@ -1,0 +1,31 @@
+edition = 4
+
+[agent]
+name = "sharp-movement-detector"
+version = "0.1.0"
+description = "TxODDS sharp odds movement detector. Receives Trading-track handoffs from match-intelligence-agent and registers sharp signals for position simulation. No real positions are executed."
+summary = "Sharp movement signal registration — simulation only, no real positions."
+readme = "The Docker participant connects to CoralOS and idles. The Rust sidecar binary (crates/agents/sharp-movement-detector) and the desktop runtime publish sharp-signal messages as this agent through the CoralOS puppet API."
+
+[agent.license]
+type = "spdx"
+expression = "MIT"
+
+[runtimes.docker]
+image = "sharp-movement-detector:0.1.0"
+
+[desktop]
+mode = "rust"
+transport = "coralos-puppet"
+trace_event = "agent://trace"
+coral_event = "coral://message"
+
+[policy]
+allow_money_decisions = false
+allow_proof_verdicts = false
+allow_settlement_release = false
+default_action = "simulate"
+
+[tools]
+features = "services::agent::features"
+ledger = "services::ledger"

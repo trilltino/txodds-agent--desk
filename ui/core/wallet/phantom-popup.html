@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TxOdds</title>
+  <style>
+    /*
+     * Intentionally blank page.
+     *
+     * This page exists only as an injection host for the Phantom extension —
+     * the user should never see a branded "Connect Phantom" card competing
+     * with Phantom's own approval popup.  We auto-trigger the connect on load
+     * so the ONLY thing the user interacts with is the Phantom wallet popup.
+     */
+    html, body { margin: 0; padding: 0; height: 100%; background: #0d0d1a; }
+  </style>
+</head>
+<body>
+  <script>
+    // Injected at runtime by the Rust popup server — no hardcoded port.
+    const CALLBACK = 'http://127.0.0.1:__PORT__/pubkey';
+
+    async function sendPubkey(pubkey) {
+      const resp = await fetch(CALLBACK, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pubkey })
+      });
+      if (!resp.ok) throw new Error('Failed to send pubkey to app (' + resp.status + ')');
+    }
+
+    function done() {
+      // Close the host window the moment the pubkey has been handed off — the
+      // user never needs to look at or dismiss this page.
+      setTimeout(function () { try { window.close(); } catch (_) {} }, 200);
+    }
+
+    async function connect() {
+      if (!window.solana || !window.solana.isPhantom) return;
+      try {
+        const result = await window.solana.connect();
+        await sendPubkey(result.publicKey.toString());
+        done();
+      } catch (_) {
+        // User dismissed / rejected Phantom — close the host window so no
+        // empty page is left behind.
+        done();
+      }
+    }
+
+    // On load: try a silent (trusted) reconnect first.  If Phantom has already
+    // approved this local origin the user sees nothing at all.  Otherwise fall
+    // straight through to the normal connect — which shows ONLY Phantom's popup.
+    window.addEventListener('load', function () {
+      if (!window.solana || !window.solana.isPhantom) {
+        // No Phantom in this Chrome profile — nothing we can do here, just
+        // close so the user isn't left staring at a blank window.
+        done();
+        return;
+      }
+      window.solana.connect({ onlyIfTrusted: true })
+        .then(function (result) {
+          if (result && result.publicKey) {
+            return sendPubkey(result.publicKey.toString()).then(done);
+          }
+          return connect();
+        })
+        .catch(function () {
+          // Silent reconnect failed (first visit or revoked) — trigger the
+          // full connect immediately; no click on our page required.
+          connect();
+        });
+    });
+  </script>
+</body>
+</html>

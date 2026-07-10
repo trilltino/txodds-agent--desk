@@ -1,0 +1,43 @@
+# cargo-deny configuration — supply chain security gate (checklist §6)
+[graph]
+targets = [{ triple = "x86_64-unknown-linux-gnu" }]
+
+[advisories]
+# Block on any RUSTSEC advisory that has a fix available.
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "deny"
+notice = "warn"
+
+[licenses]
+# Allow only permissive / weak-copyleft licenses appropriate for production agent binaries.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "MPL-2.0",
+]
+deny = ["GPL-2.0", "GPL-3.0", "AGPL-3.0"]
+# Confidence threshold for license text matching
+confidence-threshold = 0.8
+
+[bans]
+# Prevent multiple versions of heavy crates — especially model/HTTP clients.
+multiple-versions = "warn"
+deny = [
+    # Prevent old versions of OpenSSL that have known CVEs
+    { name = "openssl", version = "<0.10.55" },
+]
+
+[sources]
+# Only allow crates from crates.io and our own local workspace paths.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

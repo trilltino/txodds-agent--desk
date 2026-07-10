@@ -1,0 +1,32 @@
+# CoralOS Console bootstrap.
+#
+# This brings up ONLY the coral-server (a single container) so the CoralOS
+# Console lights up on every `just dev`, on any machine. The 9 named
+# participants are NOT run as containers: the Rust runtime is the brain and
+# publishes their real transcript through coral-server's puppet API, and the
+# session is created in devmode so coral-server never tries to spawn them.
+#
+# The only per-PC requirement is Docker itself (to run this one container).
+# There are NO per-agent images to build.
+#
+# Override the image or expose a build context by setting CORAL_SERVER_IMAGE
+# (and CORAL_SERVER_BUILD) in your .env before `just dev`.
+
+services:
+  coral-server:
+    image: ${CORAL_SERVER_IMAGE:-ghcr.io/coral-protocol/coral-server:latest}
+    container_name: coralos-server
+    ports:
+      - "5555:5555"
+    environment:
+      CORAL_TOKEN: ${CORAL_TOKEN:-dev}
+      CORALOS_NAMESPACE: ${CORALOS_NAMESPACE:-default}
+    restart: unless-stopped
+    healthcheck:
+      # coral-server serves its Console UI at /ui/console; a 2xx/3xx/4xx here
+      # means the HTTP listener is up and ready to accept session requests.
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:5555/ui/console >/dev/null 2>&1 || exit 1"]
+      interval: 3s
+      timeout: 2s
+      retries: 15
+      start_period: 5s

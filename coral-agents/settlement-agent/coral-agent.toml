@@ -1,0 +1,31 @@
+edition = 4
+
+[agent]
+name = "settlement-agent"
+version = "0.1.0"
+description = "TxODDS on-chain settlement participant. Receives handoff from match-intelligence-agent when proof gate clears on the Settlement track. Settlement release remains code-owned."
+summary = "Proof-gated on-chain settlement acknowledgement agent."
+readme = "The Docker participant connects to CoralOS and idles. The Rust desktop runtime publishes settlement handoff acknowledgements as this agent through the CoralOS puppet API."
+
+[agent.license]
+type = "spdx"
+expression = "MIT"
+
+[runtimes.docker]
+image = "settlement-agent:0.1.0"
+
+[desktop]
+mode = "rust"
+transport = "coralos-puppet"
+trace_event = "agent://trace"
+coral_event = "coral://message"
+
+[policy]
+allow_money_decisions = false
+allow_proof_verdicts = false
+allow_settlement_release = false
+default_action = "acknowledge"
+
+[tools]
+ledger = "services::ledger"
+chain = "services::chain"

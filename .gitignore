@@ -3,7 +3,11 @@ dist/
 .env
 .env.local
 .txline/
-src-tauri/target/
+target/
+native/target/
 .agents/
 runtime/sidecars/bin/node.exe
 /sidecars/
+coverage/
+.vscode/
+**/__pycache__/
