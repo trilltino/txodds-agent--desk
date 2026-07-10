@@ -25,7 +25,11 @@ services:
     healthcheck:
       # coral-server serves its Console UI at /ui/console; a 2xx/3xx/4xx here
       # means the HTTP listener is up and ready to accept session requests.
-      test: ["CMD-SHELL", "wget -q -O- http://localhost:5555/ui/console >/dev/null 2>&1 || exit 1"]
+      # The image (Ubuntu 24.04) ships neither wget nor curl, so this uses
+      # bash's built-in /dev/tcp instead of an external HTTP client.
+      # CMD-SHELL runs /bin/sh (dash, no /dev/tcp support), so bash must be
+      # invoked explicitly.
+      test: ["CMD-SHELL", "bash -c \"exec 3<>/dev/tcp/localhost/5555 && printf 'GET /ui/console HTTP/1.0\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q ' 200 '\""]
       interval: 3s
       timeout: 2s
       retries: 15
