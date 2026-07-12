@@ -143,8 +143,9 @@ h3 { margin-bottom: 8px; font-size: 18px; line-height: 1.25; }
 .appNav button span { color: #f2cf69; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0; }
 .appNav button.active { background: #ffffff; color: var(--pitch-deep); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22); }
 .appNav button.active span { color: var(--cup-blue); }
-.topActions { display: grid; justify-items: end; gap: 8px; }
+.topActions { display: flex; align-items: center; justify-content: end; gap: 8px; }
 .topActions > button { background: #ffffff; color: var(--pitch-deep); border: 1px solid rgba(242, 207, 105, 0.7); }
+.topActions > button.secondary { background: transparent; border-color: rgba(255, 255, 255, 0.4); color: #ffffff; }
 
 
 .productPage { max-width: 1440px; margin: 0 auto; padding: 22px 24px 32px; }

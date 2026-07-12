@@ -15,7 +15,8 @@ Shared React presentational components used across the Agent Desk pages.
 | `ChatPanel.tsx` | Primary surface: full-height conversation with the agent (welcome state, auto-scroll, typing indicator) |
 | `ChatMessage.tsx` | Renders one ChatItem as a bubble — agent text, tool-call cards, signal/position/settlement cards |
 | `ChatInput.tsx` | Bottom input bar with quick-action chips; free text routes through `useAgentDesk.sendChat` |
-| `WalletLogin.tsx` | Phantom wallet auth gate shown before the chat surface mounts |
+| `WalletLogin.tsx` | Phantom wallet auth gate shown before the app picker mounts |
+| `AppPicker.tsx` | App launcher shown after wallet auth; reachable again from the chat's "← Apps" back button |
 | `AgentDashboard.tsx` | Legacy panel displaying an agent run's bids, delivery, verdict, and settlement timeline |
 
 ## Adding a component

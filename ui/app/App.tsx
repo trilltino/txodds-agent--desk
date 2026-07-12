@@ -4,6 +4,7 @@ import { Shell } from './navigation/Shell'
 import { epochDayLabel, useAgentDesk } from './hooks/useAgentDesk'
 import { ChatPanel } from './components/ChatPanel'
 import { WalletLogin } from './components/WalletLogin'
+import { AppPicker } from './components/AppPicker'
 import { FixtureBoard } from '../apps/shared/components/FixtureBoard'
 
 function DesktopOnlyScreen() {
@@ -23,12 +24,12 @@ function DesktopOnlyScreen() {
 
 // ── authenticated shell ────────────────────────────────────────────────────────
 
-function AppShell({ onSignOut }: { onSignOut: () => void }) {
+function AppShell({ onSignOut, onBack }: { onSignOut: () => void; onBack: () => void }) {
   const desk = useAgentDesk()
   const selectedFixture = desk.fixtures.find((f) => f.fixtureId === desk.selectedFixtureId)
 
   return (
-    <Shell onSignOut={onSignOut}>
+    <Shell onSignOut={onSignOut} onBack={onBack}>
       <section className="productPage agent chatPage">
         <div className="chatLayout">
           <ChatPanel
@@ -67,12 +68,15 @@ function AppShell({ onSignOut }: { onSignOut: () => void }) {
 //
 // Auth gate: the webview shows <WalletLogin> until the user connects a Phantom
 // wallet and the local sled UserProfile is found or created. Once
-// `authenticated` is signalled, the chat surface mounts directly — the old
-// AppPicker launcher step is gone; the Intelligence Agent is the only app.
+// `authenticated` is signalled, <AppPicker> shows the app launcher; picking
+// the (currently sole) enabled app mounts the chat. The chat's "← Apps"
+// button returns to AppPicker without disconnecting the wallet; "Sign out"
+// disconnects and returns all the way to WalletLogin.
 export default function App() {
   // Hooks must run unconditionally on every render (Rules of Hooks) — the
-  // desktop-only gate returns AFTER them, not before.
+  // desktop-only and auth gates return AFTER them, not before.
   const [authed, setAuthed] = useState(false)
+  const [launched, setLaunched] = useState(false)
 
   if (!native) return <DesktopOnlyScreen />
 
@@ -80,14 +84,22 @@ export default function App() {
     return <WalletLogin onAuthenticated={() => setAuthed(true)} />
   }
 
+  if (!launched) {
+    return <AppPicker onLaunch={() => setLaunched(true)} />
+  }
+
   return (
     <AppShell
+      onBack={() => setLaunched(false)}
       onSignOut={() => {
         // Forget the remembered session BEFORE remounting the login gate —
         // its restore lookup runs on mount and must not find the old session.
         void clearWalletSessionNative()
           .catch(console.error)
-          .finally(() => setAuthed(false))
+          .finally(() => {
+            setAuthed(false)
+            setLaunched(false)
+          })
       }}
     />
   )
