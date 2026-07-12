@@ -1,0 +1,25 @@
+# Agent manifest — coral-server reads this to discover, launch, and configure
+# the agent (scanned via [registry] localAgents in coral.toml).
+# Docs: https://docs.coralos.ai/reference/agent
+edition = 4
+
+[agent]
+name = "proof-guard-agent"
+version = "0.1.0"
+description = "Real, independent wager-consistency proof gate for the txodds-agent-desk debate. Runs agent_core::proof_guard's deterministic 5-point check as its own OS process — never an LLM, never a debate participant, only the final gate."
+summary = "The txodds-agent-desk debate's real, independent proof-guard participant."
+readme = "On WAGER_PROOF_REQUESTED round=<n> wagerId=<id> wager=<json>, replies WAGER_PROOF_VERDICT round=<n> wagerId=<id> passed=<bool> wager=<json>. Holds no keys, moves no funds, makes no LLM calls."
+
+[agent.license]
+type = "spdx"
+expression = "MIT"
+
+[options]
+AGENT_NAME = { type = "string", default = "proof-guard-agent", description = "Market identity (matches the registry name)" }
+PG_CONSISTENCY_TOL = { type = "f64", default = 0.02, description = "Tolerance for edge/probability cross-checks" }
+PG_MAX_DEVNET_SPEND_SOL = { type = "f64", default = 0.05, description = "Devnet stake cap (advisory echo only — the Rust Authority owns the real clamp)" }
+PG_MAX_WAIT_MS = { type = "f64", default = 30000, description = "Per-poll wait_for_mention timeout" }
+MAX_STEPS = { type = "f64", default = 100000, description = "Mentions handled before this process exits (safety bound, see agent_core::safety::StepCounter)" }
+
+[runtimes.docker]
+image = "proof-guard-agent:0.1.0"

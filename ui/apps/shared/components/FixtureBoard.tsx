@@ -1,16 +1,24 @@
 import type { Fixture } from '../../../types'
 import { teamIso } from '../../../core/txline/teamFlag'
 
-// FixtureBoard lists live World Cup fixtures from /api/fixtures/snapshot.
+// FixtureBoard lists World Cup fixtures from /api/fixtures/snapshot.
 // Selecting a fixture asks App to pull its odds/scores snapshots and stage a
-// real TxLINE event, so the whole agent pipeline runs on live data.
+// real TxLINE event, so the whole agent pipeline runs on real data. The day
+// navigator browses past days — selections there produce historical
+// (end-of-day) snapshots instead of live ones.
 interface Props {
   fixtures: Fixture[]
   loading: boolean
   error?: string
   selectedFixtureId?: number
+  /** Label for the day being shown, e.g. "Today" / "Yesterday" / "Wed, Jul 8". */
+  dayLabel: string
+  /** True when the board shows a past day (historical snapshots). */
+  historical: boolean
   onSelect: (fixture: Fixture) => void
   onRefresh: () => void
+  onPrevDay: () => void
+  onNextDay: () => void
 }
 
 function kickoffLabel(fixture: Fixture): string {
@@ -30,19 +38,59 @@ function TeamName({ name }: { name: string }) {
   )
 }
 
-export function FixtureBoard({ fixtures, loading, error, selectedFixtureId, onSelect, onRefresh }: Props) {
+export function FixtureBoard({
+  fixtures,
+  loading,
+  error,
+  selectedFixtureId,
+  dayLabel,
+  historical,
+  onSelect,
+  onRefresh,
+  onPrevDay,
+  onNextDay,
+}: Props) {
   return (
     <article className="card">
       <div className="cardHead">
         <h2>Fixtures</h2>
-        <span className="pill">{loading ? 'loading' : `${fixtures.length} live`}</span>
+        <span className="pill">
+          {loading ? 'loading' : `${fixtures.length} ${historical ? 'played' : 'live'}`}
+        </span>
+      </div>
+      <div className="dayNav">
+        <button
+          type="button"
+          className="secondary dayNavBtn"
+          onClick={onPrevDay}
+          disabled={loading}
+          aria-label="Previous day"
+        >
+          ◀
+        </button>
+        <span className="dayNavLabel">{dayLabel}</span>
+        <button
+          type="button"
+          className="secondary dayNavBtn"
+          onClick={onNextDay}
+          disabled={loading}
+          aria-label="Next day"
+        >
+          ▶
+        </button>
       </div>
       <div className="eventList">
         {error ? (
           <div className="emptyState">Fixtures snapshot failed: {error}</div>
         ) : fixtures.length === 0 ? (
           <div className="emptyState">
-            {loading ? 'Fetching fixtures from TxLINE.' : 'No fixtures returned. TxLINE credentials may be missing.'}
+            {loading
+              ? 'Fetching fixtures from TxLINE.'
+              : historical
+              ? `No fixtures were played ${dayLabel === 'Yesterday' ? 'yesterday' : `on ${dayLabel}`}.`
+              : dayLabel === 'Today'
+              ? 'No fixtures scheduled for today. If this persists, TxLINE credentials may be missing.'
+              : `No fixtures scheduled for ${dayLabel === 'Tomorrow' ? 'tomorrow' : dayLabel}.`}
           </div>
         ) : fixtures.map((fixture) => (
           <button
@@ -56,7 +104,7 @@ export function FixtureBoard({ fixtures, loading, error, selectedFixtureId, onSe
               <TeamName name={fixture.away} />
             </strong>
             <span>{fixture.competition ?? 'TxLINE'} - {kickoffLabel(fixture)}</span>
-            <small>fixture {fixture.fixtureId}{fixture.status ? ` - ${fixture.status}` : ''}</small>
+            {fixture.status && <small>{fixture.status}</small>}
           </button>
         ))}
       </div>

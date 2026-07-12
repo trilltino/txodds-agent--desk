@@ -1,0 +1,30 @@
+# Agent manifest — coral-server reads this to discover, launch, and configure
+# the agent (scanned via [registry] localAgents in coral.toml).
+# Docs: https://docs.coralos.ai/reference/agent
+#
+# [agent] name is "sharp-movement-detector" — that's the CoralOS identity
+# fixed by protocol.rs and the existing message protocol. The crate/package
+# name ("trading-specialist") is different on purpose: it avoids colliding
+# with the already-real crates/agents/sharp-movement-detector binary (TxLINE
+# odds-movement polling, a different job — see that crate's own docs).
+edition = 4
+
+[agent]
+name = "sharp-movement-detector"
+version = "0.1.0"
+description = "Real, independent Trading-track specialist. Reacts to a signal/decision match-intelligence-agent already derived and delegated, deterministically simulating a position (confidence/severity-gated sizing) as its own OS process."
+summary = "The txodds-agent-desk debate's real, independent Trading specialist."
+readme = "On TRADE_REQUESTED signal=<json> decision=<json>, replies TRADE_VERDICT status=simulated|declined reason=\"...\" positionId=<string|none> sizeSol=<f64>."
+
+[agent.license]
+type = "spdx"
+expression = "MIT"
+
+[options]
+AGENT_NAME = { type = "string", default = "sharp-movement-detector", description = "Market identity (matches the registry name)" }
+TS_MAX_POSITION_SOL = { type = "f64", default = 0.05, description = "Simulated position size cap (advisory only — no real funds move here)" }
+TS_MAX_WAIT_MS = { type = "f64", default = 30000, description = "Per-poll wait_for_mention timeout" }
+MAX_STEPS = { type = "f64", default = 100000, description = "Mentions handled before this process exits (safety bound, see agent_core::safety::StepCounter)" }
+
+[runtimes.docker]
+image = "trading-specialist:0.1.0"

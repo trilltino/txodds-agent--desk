@@ -2,16 +2,19 @@ import type { ReactNode } from 'react'
 
 interface Props {
   children: ReactNode
+  /** Forget the remembered wallet session and return to the login screen. */
+  onSignOut?: () => void
 }
 
 /**
  * Shell — branded top bar + page wrapper for the single-page Agent Desk.
  * The multi-tab nav (Pulse / Markets / Agent) has been removed; there is only
- * one surface: the Intelligence Agent.
+ * one surface: the agent chat. It mounts right after wallet auth, so it fades
+ * in rather than popping in.
  */
-export function Shell({ children }: Props) {
+export function Shell({ children, onSignOut }: Props) {
   return (
-    <main className="appFrame">
+    <main className="appFrame fadeIn">
 
       {/* ── Desktop top bar ── */}
       <header className="topBar" role="banner">
@@ -24,6 +27,11 @@ export function Shell({ children }: Props) {
             </div>
           </div>
         </div>
+        {onSignOut && (
+          <div className="topActions" style={{ gridColumn: 3 }}>
+            <button onClick={onSignOut}>Sign out</button>
+          </div>
+        )}
       </header>
 
       {/* Page content */}

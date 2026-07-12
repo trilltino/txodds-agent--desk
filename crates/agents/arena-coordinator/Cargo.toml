@@ -13,6 +13,8 @@ agent-core   = { path = "../../agent-core" }
 txodds-types = { path = "../../txodds-types" }
 rig-venice   = { path = "../../rig-venice" }
 rig-core     = { version = "0.9", features = ["derive"] }
+coral-client = { path = "../../coral-client" }
+async-trait  = "0.1"
 
 tokio                = { version = "1", features = ["full"] }
 reqwest              = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }

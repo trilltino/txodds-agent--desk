@@ -7,6 +7,9 @@
  * ## State machine
  *
  * ```
+ * restoring                       (startup: look up the remembered session)
+ *   ├─ saved session found ──► authenticated   (no wallet interaction at all)
+ *   └─ none ──► idle
  * idle
  *   └─ connectWallet() ──► connecting
  *                              ├─ silent connect succeeded (returning user)
@@ -19,8 +22,13 @@
  * registering
  *   └─ register(username, cluster) ──► [issue challenge → sign → request_auth] ──► authenticated
  * authenticated
- *   └─ disconnect() ──► idle
+ *   └─ disconnect() ──► idle    (also forgets the remembered session)
  * ```
+ *
+ * Every arrival at `authenticated` saves the wallet as the remembered session
+ * (Rust-owned, in the sled user store), so subsequent launches restore it
+ * without connecting. The session stores only the public key — payments still
+ * require fresh wallet signatures.
  *
  * Silent connect (via `onlyIfTrusted`) means returning users never see the
  * Phantom approval popup.  New users see it exactly once.
@@ -34,18 +42,19 @@
  * - `error`              → inline error with retry
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   PhantomNotInjectedError,
   connectPhantom,
   disconnectPhantom,
   isValidSolanaPublicKey,
-  openPhantomSite,
   signMessage,
   silentConnect,
 } from '../../core/wallet/phantom'
 import {
+  clearWalletSessionNative,
   deleteUserProfileNative,
+  getSavedSessionNative,
   getUserProfileNative,
   issueAuthChallengeNative,
   native,
@@ -53,12 +62,14 @@ import {
   openPhantomPopupNative,
   requestAuthNative,
   saveUserProfileNative,
+  saveWalletSessionNative,
 } from '../../desktop/transport'
 import type { UserProfile } from '../../types'
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
 export type AuthStage =
+  | 'restoring'
   | 'idle'
   | 'connecting'
   | 'popup-waiting'
@@ -108,12 +119,51 @@ export interface WalletAuthActions {
  */
 export function useWalletAuth(): [WalletAuthState, WalletAuthActions] {
   const [state, setState] = useState<WalletAuthState>({
-    stage: 'idle',
+    // Desktop starts in `restoring` so a remembered session never flashes the
+    // connect screen; browser previews have no session store and start idle.
+    stage: native ? 'restoring' : 'idle',
     publicKey: null,
     profile: null,
     error: null,
     fromPopup: false,
   })
+
+  // Keep a ref so we can clean up the popup listener on unmount / re-connect.
+  const popupUnlistenRef = useRef<(() => void) | null>(null)
+
+  // Remember the wallet after any successful authentication. Fire-and-forget:
+  // a failed save only means the next launch shows the connect screen again.
+  const rememberSession = useCallback((publicKey: string) => {
+    void saveWalletSessionNative(publicKey).catch(console.error)
+  }, [])
+
+  // ── session restore (startup) ───────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!native) return
+    let cancelled = false
+    getSavedSessionNative()
+      .then(profile => {
+        if (cancelled) return
+        setState(s => {
+          // Only the initial restore may transition; never clobber a flow the
+          // user already started.
+          if (s.stage !== 'restoring') return s
+          return profile
+            ? { ...s, stage: 'authenticated', publicKey: profile.publicKey, profile }
+            : { ...s, stage: 'idle' }
+        })
+      })
+      .catch(err => {
+        console.error('session restore failed', err)
+        if (!cancelled) {
+          setState(s => (s.stage === 'restoring' ? { ...s, stage: 'idle' } : s))
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // ── connectWallet ───────────────────────────────────────────────────────────
 
@@ -144,6 +194,7 @@ export function useWalletAuth(): [WalletAuthState, WalletAuthActions] {
       }
       // 3. Profile lookup — no challenge needed for returning users.
       const profile = await getUserProfileNative(ctx.publicKey)
+      if (profile) rememberSession(ctx.publicKey)
       setState(s => ({
         ...s,
         publicKey: ctx!.publicKey ?? null,
@@ -152,15 +203,21 @@ export function useWalletAuth(): [WalletAuthState, WalletAuthActions] {
       }))
     } catch (err) {
       if (err instanceof PhantomNotInjectedError) {
-        // Inside Tauri WebView — extensions can't inject window.solana.
-        // Try the Chrome --app popup first so Phantom can inject normally.
-        // If Chrome is not found, fall back to the manual pubkey entry flow.
+        // Inside Tauri WebView — browser extensions can't inject window.solana.
+        // Launch a hidden Chrome --app window where Phantom CAN inject. The
+        // host window is hidden by a PowerShell watcher using a unique title
+        // (__TXODDS_PHANTOM_HOST__) so it won't accidentally hide VS Code or
+        // other apps. The user only ever sees Phantom's own approval popup.
         try {
           await openPhantomPopupNative()
           setState(s => ({ ...s, stage: 'popup-waiting', error: null }))
-        } catch {
-          openPhantomSite()
-          setState(s => ({ ...s, stage: 'manual-pubkey', error: null }))
+        } catch (popupErr) {
+          // Chrome/Brave not found — fall back to manual paste.
+          setState(s => ({
+            ...s,
+            stage: 'manual-pubkey',
+            error: null,
+          }))
         }
       } else {
         setState(s => ({
@@ -191,6 +248,7 @@ export function useWalletAuth(): [WalletAuthState, WalletAuthActions] {
     setState(s => ({ ...s, stage: 'connecting', error: null }))
     try {
       const profile = await getUserProfileNative(trimmed)
+      if (profile) rememberSession(trimmed)
       setState(s => ({
         ...s,
         publicKey: trimmed,
@@ -206,6 +264,21 @@ export function useWalletAuth(): [WalletAuthState, WalletAuthActions] {
       }))
     }
   }, [])
+
+  // Subscribe to the phantom_pubkey Tauri event while in popup-waiting stage.
+  // The Rust backend emits this event when the Chrome popup receives the
+  // public key from Phantom and POSTs it to the loopback HTTP server.
+  useEffect(() => {
+    if (state.stage !== 'popup-waiting') return
+    const unsub = onPhantomPubkey((pubkey: string) => {
+      connectWithPubkey(pubkey, true)
+    })
+    popupUnlistenRef.current = unsub
+    return () => {
+      unsub()
+      popupUnlistenRef.current = null
+    }
+  }, [state.stage, connectWithPubkey])
 
   // ── register ────────────────────────────────────────────────────────────────
 
@@ -248,6 +321,7 @@ export function useWalletAuth(): [WalletAuthState, WalletAuthActions] {
             cluster,
           )
         }
+        rememberSession(state.publicKey)
         setState(s => ({ ...s, profile, stage: 'authenticated' }))
       } catch (err) {
         setState(s => ({
@@ -286,19 +360,10 @@ export function useWalletAuth(): [WalletAuthState, WalletAuthActions] {
 
   const disconnect = useCallback(() => {
     disconnectPhantom()
+    // Forget the remembered session so the next launch asks to connect again.
+    void clearWalletSessionNative().catch(console.error)
     setState({ stage: 'idle', publicKey: null, profile: null, error: null, fromPopup: false })
   }, [])
-
-  // ── phantom popup listener ───────────────────────────────────────────────────
-
-  // When the Chrome --app popup completes, the Rust server emits `phantom_pubkey`.
-  // Subscribe only while in the `popup-waiting` stage; clean up on stage change.
-  useEffect(() => {
-    if (state.stage !== 'popup-waiting') return
-    return onPhantomPubkey((pubkey) => {
-      connectWithPubkey(pubkey, true)
-    })
-  }, [state.stage, connectWithPubkey])
 
   return [state, { connectWallet, connectWithPubkey, register, deleteProfile, disconnect, fallbackToManualPubkey }]
 }

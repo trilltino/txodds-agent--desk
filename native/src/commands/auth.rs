@@ -22,6 +22,9 @@
 //! | `get_user_profile`     | `invoke("get_user_profile", …)`        | Look up a profile by public key. |
 //! | `save_user_profile`    | `invoke("save_user_profile", …)`       | Create or overwrite a profile. |
 //! | `delete_user_profile`  | `invoke("delete_user_profile", …)`     | Remove a profile permanently. |
+//! | `get_saved_session`    | `invoke("get_saved_session")`          | Profile of the remembered wallet, or null. |
+//! | `save_wallet_session`  | `invoke("save_wallet_session", …)`     | Remember a wallet for auto-login. |
+//! | `clear_wallet_session` | `invoke("clear_wallet_session")`       | Forget the remembered wallet (sign out). |
 
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use tauri::{Emitter, State};
@@ -227,6 +230,63 @@ pub async fn delete_user_profile(
     store.delete(&public_key)
 }
 
+// ── remembered wallet session ─────────────────────────────────────────────────
+//
+// "Remember me" for the desktop app: after a successful authentication the
+// frontend calls `save_wallet_session`, and the next launch calls
+// `get_saved_session` to skip the connect flow entirely.  The session stores
+// only the public key — no key material — and every payment still requires a
+// fresh wallet signature, so auto-restore grants nothing spendable.
+
+/// Return the `UserProfile` of the remembered wallet session, or `null`.
+///
+/// Also returns `null` (and forgets the session) when the remembered key no
+/// longer has a profile, so a deleted profile cannot resurrect a session.
+#[tauri::command]
+pub async fn get_saved_session(
+    state: State<'_, DesktopState>,
+) -> Result<Option<UserProfile>, AppError> {
+    let store = state.user_store.lock().map_err(|_| AppError::LockPoisoned)?;
+    match store.get_session()? {
+        Some(public_key) => {
+            let profile = store.get(&public_key)?;
+            if profile.is_none() {
+                store.clear_session()?;
+            }
+            Ok(profile)
+        }
+        None => Ok(None),
+    }
+}
+
+/// Remember `public_key` as the active wallet session for auto-login.
+///
+/// Only registered wallets can be remembered — the key must already have a
+/// profile (i.e. the user completed connect + registration at least once).
+#[tauri::command]
+pub async fn save_wallet_session(
+    public_key: String,
+    state: State<'_, DesktopState>,
+) -> Result<(), AppError> {
+    if public_key.trim().is_empty() {
+        return Err(AppError::InvalidInput("public_key must not be empty".into()));
+    }
+    let store = state.user_store.lock().map_err(|_| AppError::LockPoisoned)?;
+    if store.get(&public_key)?.is_none() {
+        return Err(AppError::InvalidInput(
+            "No profile found for this key; register before saving a session.".into(),
+        ));
+    }
+    store.save_session(&public_key)
+}
+
+/// Forget the remembered wallet session (sign out).  No-op when none exists.
+#[tauri::command]
+pub async fn clear_wallet_session(state: State<'_, DesktopState>) -> Result<(), AppError> {
+    let store = state.user_store.lock().map_err(|_| AppError::LockPoisoned)?;
+    store.clear_session()
+}
+
 // ── open_phantom_popup ─────────────────────────────────────────────────────────
 
 /// Embedded popup page — port placeholder `__PORT__` is substituted at runtime.
@@ -295,10 +355,12 @@ pub async fn open_phantom_popup(app: tauri::AppHandle) -> Result<(), AppError> {
 /// that is the stray window users used to see.  To handle that case reliably we
 /// launch Chrome normally and then run a short-lived, hidden PowerShell watcher
 /// that fully **hides** (not just minimizes) any top-level window titled
-/// `TxOdds` (the popup page's `<title>`) the moment it appears, using
-/// `ShowWindow(SW_HIDE)`.  This removes it from the screen *and* the taskbar so
-/// the user never sees a stray window.  Phantom's own approval popup is a
-/// separate window with a different title, so it is left fully visible.
+/// `__TXODDS_PHANTOM_HOST__` (the popup page's `<title>`) the moment it
+/// appears, using `ShowWindow(SW_HIDE)`.  This removes it from the screen
+/// *and* the taskbar so the user never sees a stray window.  The title is
+/// deliberately unique so it won't match VS Code or other app windows.
+/// Phantom's own approval popup is a separate window with a different title,
+/// so it is left fully visible.
 ///
 /// On macOS / Linux the 1×1 off-screen trick works reliably.
 ///
@@ -348,7 +410,7 @@ public class TxWin {
 # keep watching for a short while in case Chrome is slow to create the window.
 $deadline = (Get-Date).AddSeconds(20)
 while((Get-Date) -lt $deadline){
-  [TxWin]::HideByTitle('TxOdds')
+  [TxWin]::HideByTitle('__TXODDS_PHANTOM_HOST__')
   Start-Sleep -Milliseconds 50
 }
 "#;

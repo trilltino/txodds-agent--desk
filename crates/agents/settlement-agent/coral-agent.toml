@@ -1,0 +1,23 @@
+# Agent manifest — coral-server reads this to discover, launch, and configure
+# the agent (scanned via [registry] localAgents in coral.toml).
+# Docs: https://docs.coralos.ai/reference/agent
+edition = 4
+
+[agent]
+name = "settlement-agent"
+version = "0.1.0"
+description = "Real, independent on-chain settlement participant. Verifies proof references and executes/simulates Solana settlement transactions as its own OS process, holding the only SettleCap capability token in the workspace."
+summary = "The txodds-agent-desk debate's real, independent settlement specialist."
+readme = "On SETTLE_REQUESTED wager=<json> proofRef=<string>, replies SETTLE_VERDICT status=settled|rejected|deferred reason=\"...\" txSig=<string|none>."
+
+[agent.license]
+type = "spdx"
+expression = "MIT"
+
+[options]
+AGENT_NAME = { type = "string", default = "settlement-agent", description = "Market identity (matches the registry name)" }
+SA_MAX_WAIT_MS = { type = "f64", default = 30000, description = "Per-poll wait_for_mention timeout" }
+MAX_STEPS = { type = "f64", default = 100000, description = "Mentions handled before this process exits (safety bound, see agent_core::safety::StepCounter)" }
+
+[runtimes.docker]
+image = "settlement-agent:0.1.0"

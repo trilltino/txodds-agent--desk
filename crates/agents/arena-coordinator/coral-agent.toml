@@ -1,0 +1,42 @@
+# Agent manifest — coral-server reads this to discover, launch, and configure
+# the agent (scanned via [registry] localAgents in coral.toml).
+# Docs: https://docs.coralos.ai/reference/agent
+#
+# Hybrid participant (TODO 6c option b): the settlement poll loop (TxLINE
+# fixture results × agent JSONL position logs) is the agent's real job and
+# keeps running regardless of the bus; when coral-server spawns this
+# container it additionally answers ARENA_STATUS_REQUESTED mentions with the
+# live FollowSharp-vs-FadeSharp scoreboard. Same transport constraint as
+# contrarian: wait_for_mention → send_message only, so status is
+# mention-driven.
+#
+# NOTE: settling requires the position logs written by match-intelligence
+# and contrarian. Containerised, that means mounting the same volume at
+# FOLLOW_LOG / FADE_LOG for all three processes — without it this agent
+# runs honestly but settles nothing.
+edition = 4
+
+[agent]
+name = "arena-coordinator"
+version = "0.1.0"
+description = "Arena settlement authority. Polls TxLINE fixture results, settles open FollowSharp/FadeSharp positions from the agents' JSONL logs (sole holder of SettleCap), and reports the strategy-contest scoreboard on the Coral bus on request."
+summary = "The arena's settlement coordinator, hybrid poll-loop + Coral bus participant."
+readme = "On ARENA_STATUS_REQUESTED, replies ARENA_STATUS settled=<n> followWins=<n> followLosses=<n> fadeWins=<n> fadeLosses=<n> leader=<FOLLOW|FADE|TIE>. Settlement happens in its own poll loop, never via the bus."
+
+[agent.license]
+type = "spdx"
+expression = "MIT"
+
+[options]
+TXLINE_API_KEY = { type = "string", default = "", description = "TxLINE API bearer token (required for the poll loop to settle anything)" }
+TXLINE_API_BASE = { type = "string", default = "https://txline.txodds.com/api/v1", description = "TxLINE API base URL" }
+COORDINATOR_POLL_SECS = { type = "f64", default = 30, description = "Seconds between settlement polls" }
+FOLLOW_LOG = { type = "string", default = "match-intelligence-session.jsonl", description = "FollowSharp position log to settle (shared volume with match-intelligence)" }
+FADE_LOG = { type = "string", default = "contrarian-session.jsonl", description = "FadeSharp position log to settle (shared volume with contrarian)" }
+SETTLEMENT_LOG = { type = "string", default = "arena-settlement.jsonl", description = "JSONL settlement record output path" }
+MAX_STEPS = { type = "f64", default = 1000, description = "Poll iterations before this process exits (agent_core::safety::StepCounter)" }
+CORAL_MAX_WAIT_MS = { type = "f64", default = 30000, description = "Per-poll wait_for_mention timeout for the bus loop" }
+CORAL_MAX_STEPS = { type = "f64", default = 100000, description = "Mentions handled before the bus loop exits" }
+
+[runtimes.docker]
+image = "arena-coordinator:0.1.0"

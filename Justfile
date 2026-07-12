@@ -42,18 +42,30 @@ desktop: coralos-up
     $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"; \
     $env:RUSTFLAGS = "{{RUSTFLAGS_DEV}}"; \
     $env:CARGO_INCREMENTAL = "{{CARGO_INC_DEV}}"; \
-    cmd /c "cd /d native && npx tauri dev" 2>&1 | ForEach-Object { if ($_ -notmatch 'BeforeDevCommand|BeforeBuildCommand') { Write-Host $_ } }
+    cmd /c "cd /d native && npx tauri dev 2>&1" | ForEach-Object { if ($_ -notmatch 'BeforeDevCommand|BeforeBuildCommand') { Write-Host $_ } }
 
 # Bring up the CoralOS Console server (single container) and wait for health.
 # Idempotent: re-running is a no-op when the container is already healthy.
-# Skips silently when Docker is unavailable so the desktop app still launches
-# (the app degrades to CoralOS "unavailable" rather than failing to start).
+# When the Docker daemon is down but Docker Desktop is installed, launches it
+# and waits (up to 90 s) for the daemon; skips silently only when Docker is
+# genuinely unavailable so the desktop app still launches without it.
+# Opens the Console page in the default browser once the server is healthy.
 coralos-up:
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Write-Host '[coralos] docker not found on PATH; skipping Console bootstrap'; exit 0 }; \
-    docker info *> $null; if ($LASTEXITCODE -ne 0) { Write-Host '[coralos] Docker daemon not running; skipping Console (app runs without it)'; exit 0 }; \
+    docker info *> $null; \
+    if ($LASTEXITCODE -ne 0) { \
+      $dd = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'; \
+      if (-not (Test-Path $dd)) { Write-Host '[coralos] Docker daemon not running and Docker Desktop not found; skipping Console'; exit 0 }; \
+      Write-Host '[coralos] Docker daemon not running - starting Docker Desktop (waiting up to 90s)...'; \
+      Start-Process $dd; \
+      $deadline = (Get-Date).AddSeconds(90); \
+      do { Start-Sleep -Seconds 3; docker info *> $null } while ($LASTEXITCODE -ne 0 -and (Get-Date) -lt $deadline); \
+      if ($LASTEXITCODE -ne 0) { Write-Host '[coralos] Docker daemon did not become ready in 90s; skipping Console (app runs without it)'; exit 0 }; \
+      Write-Host '[coralos] Docker daemon is up' \
+    }; \
     Write-Host '[coralos] starting coral-server (docker compose)...'; \
     docker compose -f docker-compose.coralos.yml up -d --wait *> $null; \
-    if ($LASTEXITCODE -ne 0) { Write-Host '[coralos] Console unavailable (Docker not ready); continuing without it' } else { Write-Host '[coralos] Console ready at http://localhost:5555/ui/console' }
+    if ($LASTEXITCODE -ne 0) { Write-Host '[coralos] Console unavailable (Docker not ready); continuing without it' } else { Write-Host '[coralos] Console ready at http://localhost:5555/ui/console'; Start-Process 'http://localhost:5555/ui/console' }
 
 
 # Stop and remove the CoralOS Console server container.

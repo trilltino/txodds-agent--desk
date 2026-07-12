@@ -1,0 +1,37 @@
+# Agent manifest — coral-server reads this to discover, launch, and configure
+# the agent (scanned via [registry] localAgents in coral.toml).
+# Docs: https://docs.coralos.ai/reference/agent
+#
+# Hybrid participant (TODO 6c option b): the FADE-sharp TxLINE poll loop is
+# the agent's real job and keeps running regardless of the bus; when
+# coral-server spawns this container (injecting CORAL_CONNECTION_URL) it
+# additionally answers FADE_STATUS_REQUESTED mentions with its live
+# counters. The coral-server MCP surface is wait_for_mention → send_message
+# only, so mention-driven status is the only honest bus participation for a
+# poll-loop agent.
+edition = 4
+
+[agent]
+name = "contrarian"
+version = "0.1.0"
+description = "FADE-sharp arena agent. Polls TxLINE odds and records positions against every sharp movement (FadeCap only — it cannot escalate to FollowSharp rights). On the Coral bus it reports its live position counters on request."
+summary = "The arena's FADE-sharp strategy agent, hybrid poll-loop + Coral bus participant."
+readme = "On FADE_STATUS_REQUESTED, replies FADE_STATUS strategy=fade_sharp positions=<n> lastPositionAt=<ts|none>. Positions are recorded by its own TxLINE poll loop, never via the bus."
+
+[agent.license]
+type = "spdx"
+expression = "MIT"
+
+[options]
+TXLINE_API_KEY = { type = "string", default = "", description = "TxLINE API bearer token (required for the poll loop to record anything)" }
+TXLINE_API_BASE = { type = "string", default = "https://txline.txodds.com/api/v1", description = "TxLINE API base URL" }
+POLL_INTERVAL_SECS = { type = "f64", default = 60, description = "Seconds between TxLINE odds polls" }
+CONFIDENCE_GATE = { type = "f64", default = 0.55, description = "Minimum derived confidence before a FADE position is recorded" }
+ODDS_MOVE_THRESHOLD_PCT = { type = "f64", default = 4.0, description = "Minimum odds move (percent) that counts as a sharp movement" }
+SESSION_LOG_PATH = { type = "string", default = "contrarian-session.jsonl", description = "JSONL position log path (mount a shared volume for arena-coordinator to settle these)" }
+MAX_STEPS = { type = "f64", default = 500, description = "Poll iterations before this process exits (agent_core::safety::StepCounter)" }
+CORAL_MAX_WAIT_MS = { type = "f64", default = 30000, description = "Per-poll wait_for_mention timeout for the bus loop" }
+CORAL_MAX_STEPS = { type = "f64", default = 100000, description = "Mentions handled before the bus loop exits" }
+
+[runtimes.docker]
+image = "contrarian:0.1.0"

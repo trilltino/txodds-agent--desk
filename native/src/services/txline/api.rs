@@ -10,6 +10,26 @@ use serde_json::Value;
 use crate::config::AppConfig;
 use crate::error::AppError;
 
+/// Fetch a fresh guest JWT from the TxLINE auth endpoint.
+///
+/// Called automatically when a data or SSE request returns HTTP 401,
+/// per the TxLINE quickstart credential lifecycle:
+/// > If a data request returns 401, renew the guest JWT from the same
+/// > network host and retry with the same activated API token.
+pub async fn refresh_guest_jwt(client: &Client, origin: &str) -> Result<String, AppError> {
+    let url = format!("{}/auth/guest/start", origin.trim_end_matches('/'));
+    let response = client.post(&url).send().await?.error_for_status()?;
+    let body: Value = response.json().await?;
+    body.get("token")
+        .or_else(|| body.get("jwt"))
+        .or_else(|| body.get("accessToken"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .ok_or_else(|| {
+            AppError::Config("guest/start returned no token field".to_string())
+        })
+}
+
 pub async fn authenticated_get(
     client: &Client,
     config: &AppConfig,
@@ -30,17 +50,44 @@ pub async fn authenticated_get(
         config.txline_api_origin.trim_end_matches('/'),
         path
     );
+
+    // First attempt with the configured JWT.
+    let response = build_data_request(client, &url, jwt, token, &query)
+        .send()
+        .await?;
+
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        // JWT expired — refresh from /auth/guest/start and retry once.
+        // The activated API token stays valid; only the guest session needs renewal.
+        let refreshed_jwt =
+            refresh_guest_jwt(client, &config.txline_api_origin).await?;
+        let retry = build_data_request(client, &url, &refreshed_jwt, token, &query)
+            .send()
+            .await?
+            .error_for_status()?;
+        return Ok(retry.json::<Value>().await?);
+    }
+
+    let response = response.error_for_status()?;
+    Ok(response.json::<Value>().await?)
+}
+
+fn build_data_request(
+    client: &Client,
+    url: &str,
+    jwt: &str,
+    token: &str,
+    query: &[(&str, String)],
+) -> reqwest::RequestBuilder {
     let request = client
         .get(url)
         .bearer_auth(jwt)
         .header("X-Api-Token", token);
-    let request = if query.is_empty() {
+    if query.is_empty() {
         request
     } else {
-        request.query(&query)
-    };
-    let response = request.send().await?.error_for_status()?;
-    Ok(response.json::<Value>().await?)
+        request.query(query)
+    }
 }
 
 pub fn normalize_data_path(path: &str) -> Result<String, AppError> {

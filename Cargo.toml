@@ -7,10 +7,17 @@ members = [
     "crates/txodds-types",
     "crates/agent-core",
     "crates/rig-venice",
+    "crates/coral-client",
+    "crates/coral-e2e",
+    "crates/agents/proof-guard-agent",
     "crates/agents/match-intelligence",
     "crates/agents/contrarian",
     "crates/agents/arena-coordinator",
     "crates/agents/sharp-movement-detector",
+    "crates/agents/fan-pundit-agent",
+    "crates/agents/settlement-agent",
+    "crates/agents/trading-specialist",
+    "crates/agents/idle-agent",
 ]
 resolver = "2"
 

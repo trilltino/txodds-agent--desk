@@ -20,10 +20,13 @@
 //! `fan-pundit-agent` design's "reads actual injury/news narrative" ideal —
 //! don't claim otherwise.
 
+use agent_core::ToolTrailEntry;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use txodds_types::WagerStatus;
+
+use crate::services::coralos::protocol::FAN_PUNDIT_AGENT;
 
 use super::authority::{self, AuthorityPolicy, AuthorityRuling};
 
@@ -101,6 +104,10 @@ pub struct PunditOutcome {
     /// wasn't available — the original ruling stands unchanged in that case.
     pub updated_ruling: Option<AuthorityRuling>,
     pub narrative: String,
+    /// Every tool call the Venice loop actually made, attributed to the
+    /// fan-pundit persona this pass narrates as (TODO 6e). Empty when the
+    /// loop never ran.
+    pub tool_trail: Vec<ToolTrailEntry>,
 }
 
 /// React to an already-adjudicated wager ruling. Returns `None` for
@@ -112,6 +119,7 @@ pub async fn react_to_wager(ruling: &AuthorityRuling, policy: AuthorityPolicy) -
         return PunditOutcome {
             updated_ruling: None,
             narrative: "no live proposal to react to; holding narrative view".to_owned(),
+            tool_trail: Vec::new(),
         };
     }
 
@@ -119,6 +127,7 @@ pub async fn react_to_wager(ruling: &AuthorityRuling, policy: AuthorityPolicy) -
         return PunditOutcome {
             updated_ruling: None,
             narrative: "Venice not configured; pundit reaction skipped".to_owned(),
+            tool_trail: Vec::new(),
         };
     };
     let model = rig_venice::model_name();
@@ -143,18 +152,22 @@ pub async fn react_to_wager(ruling: &AuthorityRuling, policy: AuthorityPolicy) -
         return PunditOutcome {
             updated_ruling: None,
             narrative: "Venice reasoning failed; pundit reaction skipped".to_owned(),
+            tool_trail: Vec::new(),
         };
     };
+    let tool_trail = ToolTrailEntry::from_calls(FAN_PUNDIT_AGENT, &outcome.tool_calls);
     let Some(final_args) = outcome.final_args else {
         return PunditOutcome {
             updated_ruling: None,
             narrative: "pundit did not reach a verdict within the round cap".to_owned(),
+            tool_trail,
         };
     };
     let Ok(verdict) = serde_json::from_value::<PunditVerdict>(final_args) else {
         return PunditOutcome {
             updated_ruling: None,
             narrative: "malformed pundit verdict; reaction skipped".to_owned(),
+            tool_trail,
         };
     };
 
@@ -166,6 +179,7 @@ pub async fn react_to_wager(ruling: &AuthorityRuling, policy: AuthorityPolicy) -
         return PunditOutcome {
             updated_ruling: None,
             narrative: "could not reconstruct market odds; reaction skipped".to_owned(),
+            tool_trail,
         };
     }
 
@@ -194,7 +208,7 @@ pub async fn react_to_wager(ruling: &AuthorityRuling, policy: AuthorityPolicy) -
         "pundit {} ({}): {}",
         verdict.stance, verdict.reason, updated.reason
     );
-    PunditOutcome { updated_ruling: Some(updated), narrative }
+    PunditOutcome { updated_ruling: Some(updated), narrative, tool_trail }
 }
 
 #[cfg(test)]

@@ -1,0 +1,17 @@
+[package]
+name = "coral-e2e"
+version = "0.1.0"
+edition = "2021"
+description = "End-to-end harness: drives a real coral-server session and asserts a WAGER_PROOF_REQUESTED → WAGER_PROOF_VERDICT round-trip against the real proof-guard-agent container."
+
+[[bin]]
+name = "coral-e2e"
+path = "src/main.rs"
+
+[dependencies]
+coral-client = { path = "../coral-client" }
+txodds-types = { path = "../txodds-types" }
+
+tokio      = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+reqwest    = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+serde_json = "1"

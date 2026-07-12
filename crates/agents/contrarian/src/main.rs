@@ -23,6 +23,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::todo)]
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use agent_core::{
@@ -32,6 +34,7 @@ use agent_core::{
     safety::{BudgetGuard, StepCounter, safety_check, wrap_untrusted},
     tools::IdempotencyKey,
 };
+use coral_client::{wire, CoralMention, Specialist};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -107,6 +110,50 @@ struct PositionLogEntry {
     strategy: String,
 }
 
+// ── Coral bus participation (hybrid mode, TODO 6c) ────────────────────────────
+
+/// Live counters the poll loop writes and the Coral mention loop reads.
+/// The poll loop stays authoritative — this is a read-only view for the bus.
+#[derive(Default)]
+struct FadeStatus {
+    positions: AtomicU64,
+    last_position_at: Mutex<Option<String>>,
+}
+
+/// Hybrid-mode Specialist: when coral-server spawned this process
+/// (`CORAL_CONNECTION_URL` present), the FADE poll loop keeps running
+/// unchanged and this answers `FADE_STATUS_REQUESTED` mentions with the
+/// loop's live counters. The observed coral-server MCP surface is
+/// `wait_for_mention` → `send_message` only — an agent cannot open a thread
+/// or publish unprompted — so mention-driven status is the honest hybrid
+/// (TODO 6c option b), not a fake "publish" the transport can't do.
+struct ContrarianStatusSpecialist {
+    status: Arc<FadeStatus>,
+}
+
+#[async_trait::async_trait]
+impl Specialist for ContrarianStatusSpecialist {
+    fn name(&self) -> &str {
+        "contrarian"
+    }
+
+    async fn handle(&self, mention: CoralMention) -> String {
+        if wire::verb(&mention.text) != "FADE_STATUS_REQUESTED" {
+            tracing::debug!(text = %mention.text, "contrarian: ignoring non-status mention");
+            return String::new();
+        }
+        let positions = self.status.positions.load(Ordering::Relaxed);
+        let last = self
+            .status
+            .last_position_at
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+            .unwrap_or_else(|| "none".to_owned());
+        format!("FADE_STATUS strategy=fade_sharp positions={positions} lastPositionAt={last}")
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -139,6 +186,25 @@ async fn main() {
     let poll = Duration::from_secs(config.poll_interval_secs);
     let mut prev_odds: HashMap<(u64, String, String), f64> = HashMap::new();
 
+    // Hybrid mode (TODO 6c): when coral-server spawned this process it also
+    // participates on the Coral bus, answering FADE_STATUS_REQUESTED with
+    // the counters below. The poll loop is unchanged and stays authoritative;
+    // standalone runs (no CORAL_CONNECTION_URL) skip the bus entirely.
+    let status = Arc::new(FadeStatus::default());
+    if std::env::var("CORAL_CONNECTION_URL").is_ok() {
+        let specialist = ContrarianStatusSpecialist { status: Arc::clone(&status) };
+        let coral_wait_ms: u64 = env_parse("CORAL_MAX_WAIT_MS", 30_000);
+        let coral_steps: u64 = env_parse("CORAL_MAX_STEPS", 100_000);
+        tokio::spawn(async move {
+            if let Err(e) = coral_client::run(specialist, coral_wait_ms, coral_steps).await {
+                warn!(error = %e, "coral mention loop ended");
+            }
+        });
+        info!("hybrid mode: servicing FADE_STATUS_REQUESTED on the Coral bus");
+    } else {
+        info!("standalone mode: no CORAL_CONNECTION_URL, poll loop only");
+    }
+
     loop {
         if let Err(e) = safety_check(&budget) {
             warn!(error = %e, "safety gate triggered — shutting down");
@@ -153,6 +219,10 @@ async fn main() {
             .await
         {
             Ok(count) if count > 0 => {
+                status.positions.fetch_add(count as u64, Ordering::Relaxed);
+                if let Ok(mut last) = status.last_position_at.lock() {
+                    *last = Some(utc_now_iso8601());
+                }
                 info!(count, step = steps.current(), "positions recorded (FADE)");
             }
             Ok(_) => {
@@ -379,5 +449,45 @@ impl std::fmt::Display for ConfigError {
         match self {
             ConfigError::Missing(k) => write!(f, "required env var {k} is not set"),
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    fn mention(text: &str) -> CoralMention {
+        CoralMention {
+            thread_id: Some("t-1".into()),
+            sender: Some("match-intelligence-agent".into()),
+            text: text.to_owned(),
+        }
+    }
+
+    #[tokio::test]
+    async fn status_specialist_reports_live_counters() {
+        let status = Arc::new(FadeStatus::default());
+        status.positions.fetch_add(3, Ordering::Relaxed);
+        *status.last_position_at.lock().unwrap() = Some("1752192000Z".into());
+        let specialist = ContrarianStatusSpecialist { status };
+        let reply = specialist.handle(mention("FADE_STATUS_REQUESTED")).await;
+        assert_eq!(
+            reply,
+            "FADE_STATUS strategy=fade_sharp positions=3 lastPositionAt=1752192000Z"
+        );
+    }
+
+    #[tokio::test]
+    async fn status_specialist_reports_none_before_first_position() {
+        let specialist = ContrarianStatusSpecialist { status: Arc::new(FadeStatus::default()) };
+        let reply = specialist.handle(mention("FADE_STATUS_REQUESTED")).await;
+        assert_eq!(reply, "FADE_STATUS strategy=fade_sharp positions=0 lastPositionAt=none");
+    }
+
+    #[tokio::test]
+    async fn status_specialist_ignores_other_verbs() {
+        let specialist = ContrarianStatusSpecialist { status: Arc::new(FadeStatus::default()) };
+        assert_eq!(specialist.handle(mention("HELLO round=1")).await, "");
     }
 }

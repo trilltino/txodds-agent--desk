@@ -1,0 +1,21 @@
+# CoralOS config for txodds-agent-desk — enables real (non-devmode) agents.
+# Mounted at /config/coral.toml (CONFIG_FILE_PATH); agent manifests are
+# discovered under /agents/* (crates/agents/, one coral-agent.toml per real
+# participant — see crates/agents/proof-guard-agent/coral-agent.toml).
+#
+# Docs: server config https://docs.coralos.ai/reference/server
+
+[auth]
+keys = ["dev"]
+
+[network]
+allowAnyHost = true
+
+[registry]
+localAgents = ["/agents/*"]
+includeCoralHomeAgents = true
+localAgentRescanTimer = "5s"
+
+[docker]
+# From inside a container on Docker Desktop, the host is host.docker.internal.
+address = "host.docker.internal"

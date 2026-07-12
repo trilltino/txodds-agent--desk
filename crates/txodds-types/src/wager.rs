@@ -13,7 +13,7 @@
 use serde::{Deserialize, Serialize};
 
 /// The outcome a wager backs. Mirrors the 1X2 market shape.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Selection {
     Home,
@@ -130,6 +130,31 @@ impl Wager {
     pub fn has_value(&self, min_edge: f64) -> bool {
         self.edge > min_edge && self.model_prob > 0.0 && self.model_prob < 1.0
     }
+
+    /// Append a contribution to this wager's debate transcript, creating the
+    /// [`DebateSummary`] on first use (port of the Python specialists'
+    /// transcript building — each debate pass records *who argued what*, for
+    /// the audit panel).
+    ///
+    /// `rounds` tracks the highest round seen. `converged` stays `true`:
+    /// this pipeline's debate is a fixed sequence of passes (analysis →
+    /// endorse/challenge → gate), not an iterate-until-agreement loop, so
+    /// every completed transcript is by definition converged.
+    pub fn push_debate(&mut self, contribution: DebateContribution) {
+        let summary = self.debate.get_or_insert_with(|| DebateSummary {
+            rounds: 0,
+            converged: true,
+            contributions: Vec::new(),
+        });
+        summary.rounds = summary.rounds.max(contribution.round);
+        summary.contributions.push(contribution);
+    }
+
+    /// The next free debate round number (1 when no debate exists yet).
+    #[must_use]
+    pub fn next_debate_round(&self) -> u64 {
+        self.debate.as_ref().map_or(1, |d| d.rounds + 1)
+    }
 }
 
 /// Kelly stake fraction for a single binary outcome.
@@ -199,6 +224,51 @@ mod tests {
         assert_eq!(implied_probability(4.0), Some(0.25));
         assert_eq!(implied_probability(1.0), None);
         assert_eq!(implied_probability(0.0), None);
+    }
+
+    #[test]
+    fn push_debate_creates_summary_and_tracks_rounds() {
+        let mut w = Wager {
+            wager_id: "w1".into(),
+            fixture_id: 7,
+            selection: Selection::Home,
+            model_prob: 0.6,
+            market_implied: 0.5,
+            edge: 0.1,
+            fair_odds: 1.0 / 0.6,
+            stake_sol: 0.01,
+            thesis: "value on home".into(),
+            proof_ref: None,
+            status: WagerStatus::Debated,
+            debate: None,
+            created_at: "2026-01-01T00:00:00.000Z".into(),
+        };
+        assert_eq!(w.next_debate_round(), 1);
+        w.push_debate(DebateContribution {
+            agent_id: "match-intelligence-agent".into(),
+            round: 1,
+            kind: "analysis".into(),
+            summary: "value on home".into(),
+            prob: Some(0.6),
+            confidence: None,
+            targets: vec![],
+        });
+        assert_eq!(w.next_debate_round(), 2);
+        w.push_debate(DebateContribution {
+            agent_id: "fan-pundit-agent".into(),
+            round: 2,
+            kind: "challenge".into(),
+            summary: "edge rests on neutral fundamentals".into(),
+            prob: Some(0.57),
+            confidence: None,
+            targets: vec!["match-intelligence-agent".into()],
+        });
+        let debate = w.debate.expect("debate created");
+        assert_eq!(debate.rounds, 2);
+        assert!(debate.converged);
+        assert_eq!(debate.contributions.len(), 2);
+        assert_eq!(debate.contributions[0].kind, "analysis");
+        assert_eq!(debate.contributions[1].targets, vec!["match-intelligence-agent"]);
     }
 
     #[test]

@@ -1,13 +1,24 @@
 # CoralOS Console bootstrap.
 #
-# This brings up ONLY the coral-server (a single container) so the CoralOS
-# Console lights up on every `just dev`, on any machine. The 9 named
-# participants are NOT run as containers: the Rust runtime is the brain and
-# publishes their real transcript through coral-server's puppet API, and the
-# session is created in devmode so coral-server never tries to spawn them.
+# Every named participant is a real, coral-server-spawned Docker container —
+# discovered via `[registry] localAgents` in coral/coral.toml (mounted
+# below) and launched through the mounted Docker socket, the same mechanism
+# the `pay` project's real buyer/seller/verifier agents use. There is no
+# "devmode"/non-spawned registration in real CoralOS (its RuntimeId enum has
+# no such value — confirmed by decompiling a live server), so even the two
+# identities that are legitimately self/human-narrated
+# (`match-intelligence-agent`, `user-proxy`) are real, idling containers
+# (crates/agents/idle-agent) that the puppet API posts to, not fake
+# unspawned registrations.
 #
-# The only per-PC requirement is Docker itself (to run this one container).
-# There are NO per-agent images to build.
+# Build every image once before starting a round:
+#   docker build -f crates/agents/proof-guard-agent/Dockerfile   -t proof-guard-agent:0.1.0   .
+#   docker build -f crates/agents/settlement-agent/Dockerfile    -t settlement-agent:0.1.0    .
+#   docker build -f crates/agents/trading-specialist/Dockerfile  -t trading-specialist:0.1.0  .
+#   docker build -f crates/agents/fan-pundit-agent/Dockerfile    -t fan-pundit-agent:0.1.0    .
+#   docker build -f crates/agents/idle-agent/Dockerfile          -t idle-agent:0.1.0          .
+#   docker build -f crates/agents/contrarian/Dockerfile          -t contrarian:0.1.0          .
+#   docker build -f crates/agents/arena-coordinator/Dockerfile   -t arena-coordinator:0.1.0   .
 #
 # Override the image or expose a build context by setting CORAL_SERVER_IMAGE
 # (and CORAL_SERVER_BUILD) in your .env before `just dev`.
@@ -21,6 +32,11 @@ services:
     environment:
       CORAL_TOKEN: ${CORAL_TOKEN:-dev}
       CORALOS_NAMESPACE: ${CORALOS_NAMESPACE:-default}
+      CONFIG_FILE_PATH: /config/coral.toml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./coral/coral.toml:/config/coral.toml:ro
+      - ./crates/agents:/agents:ro
     restart: unless-stopped
     healthcheck:
       # coral-server serves its Console UI at /ui/console; a 2xx/3xx/4xx here

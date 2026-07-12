@@ -7,9 +7,10 @@
  *
  * | `stage`         | What renders                                             |
  * |-----------------|----------------------------------------------------------|
+ * | `restoring`     | Spinner (looking up the remembered session)              |
  * | `idle`          | "Connect Wallet" button                                  |
  * | `connecting`    | Spinner                                                  |
- * | `popup-waiting` | Spinner + "Waiting for Phantom popup…" + cancel link     |
+ * | `popup-waiting` | Spinner + "Waiting for Phantom…" + manual fallback link  |
  * | `manual-pubkey` | Paste public-key form                                    |
  * | `registering`   | Username + cluster form (inline, no modal)               |
  * | `error`         | Inline error message with retry button                   |
@@ -143,28 +144,35 @@ function ManualPubkeyForm({ onSubmit, error }: { onSubmit: (pubkey: string) => v
   return (
     <form
       onSubmit={handleSubmit}
-      style={{ display: 'flex', flexDirection: 'column', gap: 12, width: 320 }}
+      style={{ display: 'flex', flexDirection: 'column', gap: 12, width: 340 }}
     >
       <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#fff' }}>
-        Paste your wallet address
+        Connect your Phantom wallet
       </h2>
-      <p style={{ margin: 0, fontSize: 12, color: '#aaa', lineHeight: 1.5 }}>
-        Phantom has opened in your default browser. Copy your public key from
-        there and paste it below.
-      </p>
+      <div style={{ margin: 0, fontSize: 12, color: '#aaa', lineHeight: 1.6 }}>
+        <p style={{ margin: '0 0 8px' }}>
+          Open Phantom in your browser or mobile app, copy your wallet address,
+          and paste it below.
+        </p>
+        <ol style={{ margin: 0, paddingLeft: 18 }}>
+          <li>Open <strong style={{ color: '#AB9FF2' }}>Phantom</strong> wallet</li>
+          <li>Tap your address at the top to copy it</li>
+          <li>Paste it here and click <strong style={{ color: '#ccc' }}>Connect</strong></li>
+        </ol>
+      </div>
       <label style={{ fontSize: 13, color: '#aaa' }}>
         Solana public key
         <input
           autoFocus
           value={pubkey}
           onChange={e => setPubkey(e.target.value)}
-          placeholder="e.g. 9xDUc…"
+          placeholder="e.g. 9xDUcBa3Y4oCPaFv3v…"
           spellCheck={false}
           style={{
             display: 'block',
             marginTop: 4,
             width: '100%',
-            padding: '6px 8px',
+            padding: '8px 10px',
             background: '#1a1a2e',
             border: '1px solid #333',
             borderRadius: 6,
@@ -182,7 +190,7 @@ function ManualPubkeyForm({ onSubmit, error }: { onSubmit: (pubkey: string) => v
         type="submit"
         disabled={!pubkey.trim()}
         style={{
-          padding: '8px 0',
+          padding: '10px 0',
           background: pubkey.trim() ? '#9945FF' : '#333',
           border: 'none',
           borderRadius: 8,
@@ -253,9 +261,33 @@ export function WalletLogin({ onAuthenticated }: { onAuthenticated: () => void }
         </button>
       )}
 
-      {stage === 'connecting' && <Spinner />}
+      {(stage === 'restoring' || stage === 'connecting') && <Spinner />}
 
-      {stage === 'popup-waiting' && <Spinner />}
+      {stage === 'popup-waiting' && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+          <Spinner />
+          <p style={{ margin: 0, fontSize: 14, color: '#aaa' }}>
+            Waiting for Phantom to approve…
+          </p>
+          <p style={{ margin: 0, fontSize: 12, color: '#666' }}>
+            A Phantom popup should appear shortly. If nothing happens,{' '}
+            <button
+              onClick={fallbackToManualPubkey}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#9945FF',
+                fontSize: 12,
+                cursor: 'pointer',
+                textDecoration: 'underline',
+                padding: 0,
+              }}
+            >
+              paste your key manually
+            </button>.
+          </p>
+        </div>
+      )}
 
       {stage === 'manual-pubkey' && (
         <ManualPubkeyForm onSubmit={connectWithPubkey} error={error} />

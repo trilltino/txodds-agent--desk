@@ -1,0 +1,47 @@
+# CI — builds and tests every agent binary and library crate on each push/PR
+# (TODO.md Loose Ends: "Add cargo build -p proof-guard-agent and eventually
+# all agent binaries to CI" — covered by the workspace job's --bins build).
+#
+# The coral-e2e harness is NOT run here: it needs Docker + the coral-server
+# image (see LOOSE-ENDS-PLAN.md §2). Add a separate docker-runner workflow
+# for it once CI hardware is decided.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # All library + agent crates. No system deps needed — everything here is
+  # plain tokio/reqwest(rustls), so this job stays fast and hermetic.
+  workspace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build all agent binaries
+        run: cargo build --workspace --exclude txodds-agent-desk --bins
+      - name: Test all non-Tauri crates
+        run: cargo test --workspace --exclude txodds-agent-desk
+
+  # The Tauri desktop crate needs the Linux WebKit/GTK stack to compile.
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev pkg-config libssl-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test the Tauri orchestrator crate
+        run: cargo test -p txodds-agent-desk

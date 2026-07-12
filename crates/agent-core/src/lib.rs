@@ -38,10 +38,14 @@ pub mod error;
 pub mod safety;
 pub mod tools;
 
+// Ported from coral-agents/ Python (now deleted):
+pub mod fundamentals;
+pub mod proof_guard;
+
 // ── Top-level re-exports ──────────────────────────────────────────────────────
 
 pub use capability::{CapabilityGrant, Capability, FadeCap, FollowCap, SettleCap};
 pub use domain::ProofGateDecision;
 pub use error::{AgentError, is_retryable};
 pub use safety::{BudgetGuard, StepCounter, safety_check, wrap_untrusted};
-pub use tools::{IdempotencyKey, Tool, ToolCallOutcome, ToolCallRecord};
+pub use tools::{IdempotencyKey, Tool, ToolCallOutcome, ToolCallRecord, ToolTrailEntry};

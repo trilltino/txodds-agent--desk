@@ -26,6 +26,7 @@
 use std::fmt;
 use crate::capability::Capability;
 use crate::error::AgentError;
+use serde::{Deserialize, Serialize};
 
 // ── Idempotency key ───────────────────────────────────────────────────────────
 
@@ -154,6 +155,45 @@ pub struct ToolCallRecord {
     pub capability_granted: bool,
     /// Outcome after execution.
     pub outcome: ToolCallOutcome,
+}
+
+/// One observable step of an LLM tool-calling loop, kept so the Coral
+/// transcript can show *why* an agent reached its conclusion, not just the
+/// verdict (TODO 6e / ROADMAP payload enrichment).
+///
+/// Deliberately lighter than [`ToolCallRecord`]: the rig tool loop
+/// (`rig_venice::loop_runner`) observes only the tool's name and its parsed
+/// result — it has no idempotency key, capability check, or pre-execution
+/// timestamp to report, and fabricating those fields for the transcript
+/// would violate the honest-audit rule (§24). `ToolCallRecord` remains the
+/// shape for tools that go through the full [`Tool`] trait.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolTrailEntry {
+    /// CoralOS participant the reasoning is attributed to.
+    pub agent: String,
+    /// Tool name as the model called it.
+    pub tool: String,
+    /// The tool's own (deterministic) result — never the model's prose.
+    pub result: serde_json::Value,
+}
+
+impl ToolTrailEntry {
+    /// Attribute a rig tool loop's `(tool name, result)` trace to `agent`.
+    /// The tuple-slice shape matches
+    /// `rig_venice::loop_runner::ToolLoopOutcome::tool_calls` without this
+    /// crate depending on rig.
+    #[must_use]
+    pub fn from_calls(agent: &str, calls: &[(String, serde_json::Value)]) -> Vec<Self> {
+        calls
+            .iter()
+            .map(|(tool, result)| Self {
+                agent: agent.to_owned(),
+                tool: tool.clone(),
+                result: result.clone(),
+            })
+            .collect()
+    }
 }
 
 /// The outcome of a tool call, recorded in the audit log.

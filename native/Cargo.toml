@@ -53,6 +53,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # Standalone agent crates.
 txodds-types = { path = "../crates/txodds-types" }
 agent-core = { path = "../crates/agent-core" }
+coral-client = { path = "../crates/coral-client" }
 rig-core = { version = "0.9", features = ["derive"] }
 rig-venice = { path = "../crates/rig-venice" }
 schemars = { version = "0.8", features = ["derive"] }

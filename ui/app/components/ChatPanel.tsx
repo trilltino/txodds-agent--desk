@@ -1,0 +1,106 @@
+/**
+ * ChatPanel
+ *
+ * The primary surface of the Agent Desk: a full-height conversation with the
+ * intelligence agent. Streams from useAgentDesk arrive pre-merged as ChatItem
+ * entries; this component owns only presentation concerns — welcome state,
+ * auto-scroll, and the typing indicator while a round is in flight.
+ */
+
+import { useEffect, useRef } from 'react'
+import type { Fixture } from '../../types'
+import type { ChatItem } from '../../core/chat/types'
+import { ChatMessage } from './ChatMessage'
+import { ChatInput } from './ChatInput'
+
+interface Props {
+  items: ChatItem[]
+  busy: boolean
+  /** Latest trace summary while the agent works — shown next to the typing dots. */
+  busyLabel?: string
+  selectedFixture?: Fixture
+  onSend: (text: string) => void
+}
+
+function WelcomeMessage() {
+  return (
+    <div className="chatRow agent">
+      <span className="chatAvatar" aria-hidden="true">
+        <span className="chatAvatarDot" />
+      </span>
+      <div className="chatRowBody">
+        <div className="chatBubble agentBubble">
+          <span className="chatSender">agent desk</span>
+          Hi — I’m your World Cup intelligence agent. Pick a fixture on the right,
+          then ask me things like <strong>“Analyze Norway vs England”</strong>,{' '}
+          <strong>“What’s the sharp movement on France vs Spain?”</strong> or{' '}
+          <strong>“What’s the current arena score?”</strong>. For past matches, use
+          the <strong>◀ ▶</strong> arrows on the fixture board to browse earlier
+          days, or add a time phrase like <strong>“as of yesterday 18:00”</strong>.
+          I’ll narrate signals, positions, and settlements here as they happen.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TypingIndicator({ label }: { label?: string }) {
+  return (
+    <div className="chatRow agent">
+      <span className="chatAvatar" aria-hidden="true">
+        <span className="chatAvatarDot" />
+      </span>
+      <div className="chatRowBody">
+        <div className="chatBubble agentBubble typing">
+          <span className="typingDots" aria-label="Agent is thinking">
+            <span />
+            <span />
+            <span />
+          </span>
+          {label && <span className="typingLabel">{label}</span>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function ChatPanel({ items, busy, busyLabel, selectedFixture, onSend }: Props) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Follow the conversation: scroll to the newest message whenever the log
+  // grows or the typing indicator toggles.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }, [items.length, busy])
+
+  return (
+    <section className="chatPanel" aria-label="Chat with agent">
+      <header className="chatHeader">
+        <span className="chatAvatar large" aria-hidden="true">
+          <span className="chatAvatarDot" />
+        </span>
+        <div className="chatHeaderCopy">
+          <strong>Intelligence Agent</strong>
+          <span className="chatHeaderStatus">
+            {busy
+              ? 'working…'
+              : selectedFixture
+              ? `watching ${selectedFixture.home} vs ${selectedFixture.away}`
+              : 'waiting for a fixture'}
+          </span>
+        </div>
+      </header>
+
+      <div className="chatScroll" ref={scrollRef}>
+        <WelcomeMessage />
+        {items.map((item) => (
+          <ChatMessage key={item.id} item={item} />
+        ))}
+        {busy && <TypingIndicator label={busyLabel} />}
+      </div>
+
+      <ChatInput disabled={busy} selectedFixture={selectedFixture} onSend={onSend} />
+    </section>
+  )
+}

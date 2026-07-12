@@ -165,25 +165,37 @@ async fn connect_sse_once(
     if let Some(fixture) = fixture_id.filter(|value| !value.trim().is_empty()) {
         stream_url = format!("{stream_url}?fixtureId={fixture}");
     }
-    let mut request = client
-        .get(stream_url)
-        .bearer_auth(jwt)
-        .header("X-Api-Token", token)
-        .header("Accept", "text/event-stream")
-        .header("Cache-Control", "no-cache");
-    if let Some(id) = last_event_id.as_deref() {
-        request = request.header("Last-Event-ID", id);
-    }
-    let response = match request.send().await {
-        Ok(response) => response,
-        Err(err) => {
-            return Err(format!("TxLINE {stream} SSE connection failed: {err}"));
-        }
-    };
 
-    if !response.status().is_success() {
+    // Build and send the initial SSE request.
+    let response = send_sse_request(client, &stream_url, jwt, token, last_event_id.as_deref())
+        .await
+        .map_err(|err| format!("TxLINE {stream} SSE connection failed: {err}"))?;
+
+    // If the JWT has expired (401), refresh it from /auth/guest/start and retry
+    // once. The activated API token remains valid per the TxLINE credential
+    // lifecycle documentation.
+    let response = if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        emit_status(
+            app,
+            &format!("live:{stream}"),
+            "refreshing_jwt",
+            &format!("TxLINE {stream} SSE returned 401; refreshing guest JWT"),
+        );
+        let refreshed_jwt = super::api::refresh_guest_jwt(client, origin)
+            .await
+            .map_err(|err| format!("TxLINE JWT refresh failed: {err}"))?;
+        let retry = send_sse_request(client, &stream_url, &refreshed_jwt, token, last_event_id.as_deref())
+            .await
+            .map_err(|err| format!("TxLINE {stream} SSE retry failed: {err}"))?;
+        if !retry.status().is_success() {
+            return Err(format!("TxLINE {stream} SSE HTTP {} after JWT refresh", retry.status()));
+        }
+        retry
+    } else if !response.status().is_success() {
         return Err(format!("TxLINE {stream} SSE HTTP {}", response.status()));
-    }
+    } else {
+        response
+    };
 
     emit_status(
         app,
@@ -211,6 +223,26 @@ async fn connect_sse_once(
         }
     }
     Ok(())
+}
+
+/// Build and send a single SSE request with the given credentials.
+async fn send_sse_request(
+    client: &Client,
+    url: &str,
+    jwt: &str,
+    token: &str,
+    last_event_id: Option<&str>,
+) -> Result<reqwest::Response, reqwest::Error> {
+    let mut request = client
+        .get(url)
+        .bearer_auth(jwt)
+        .header("X-Api-Token", token)
+        .header("Accept", "text/event-stream")
+        .header("Cache-Control", "no-cache");
+    if let Some(id) = last_event_id {
+        request = request.header("Last-Event-ID", id);
+    }
+    request.send().await
 }
 
 fn parse_sse_block(stream: &str, block: &str) -> Option<TxLineEvent> {

@@ -39,6 +39,12 @@ pub struct DesktopState {
     /// Maps nonce (UUID v4) → (base58 public key, signed message text).
     /// Entries are consumed on first use so replay attacks are impossible.
     pub pending_challenges: Mutex<HashMap<String, (String, String)>>,
+    /// CoralOS session id reused across every `run_agent_round` call for the
+    /// life of the app, so the Console shows one durable, growing session
+    /// (with a fresh thread per round) instead of a new session — and four
+    /// fresh Docker containers — per round that winds down within ~60s.
+    /// Set on first use by `run_match_intelligence_round`; `None` until then.
+    pub coralos_session_id: Mutex<Option<String>>,
 }
 
 /// Locate a named sidecar script across dev, legacy, and packaged layouts.

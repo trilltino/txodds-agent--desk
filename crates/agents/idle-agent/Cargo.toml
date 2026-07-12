@@ -1,0 +1,15 @@
+[package]
+name = "idle-agent"
+version = "0.1.0"
+edition = "2021"
+description = "Generic idle CoralOS participant. Connects via MCP and blocks forever, giving the puppet REST API a valid registered target — mirrors pay's coral-agents/user_proxy. Reused for both match-intelligence-agent and user-proxy (AGENT_NAME picks the identity; coral-server resolves the real image via each name's own coral-agent.toml)."
+
+[[bin]]
+name = "idle-agent"
+path = "src/main.rs"
+
+[dependencies]
+coral-client        = { path = "../../coral-client" }
+tokio               = { version = "1", features = ["full"] }
+tracing             = "0.1"
+tracing-subscriber  = { version = "0.3", features = ["env-filter", "json"] }

@@ -6,4 +6,5 @@
 
 pub mod console;
 pub mod protocol;
+pub mod thread_reader;
 pub mod transcript;

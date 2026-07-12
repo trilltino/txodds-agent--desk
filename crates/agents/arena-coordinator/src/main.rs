@@ -11,6 +11,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::todo)]
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use agent_core::{
@@ -20,6 +22,7 @@ use agent_core::{
     safety::{BudgetGuard, StepCounter, safety_check},
     tools::IdempotencyKey,
 };
+use coral_client::{wire, CoralMention, Specialist};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
@@ -122,6 +125,65 @@ impl ArenaScore {
     }
 }
 
+// ── Coral bus participation (hybrid mode, TODO 6c) ────────────────────────────
+
+/// Read-only snapshot of the arena scoreboard for the Coral mention loop.
+/// The poll loop's `ArenaScore` stays authoritative; `publish_status` copies
+/// it here after every successful coordinator step.
+#[derive(Default)]
+struct ArenaStatusShared {
+    settled: AtomicU64,
+    follow_wins: AtomicU64,
+    follow_losses: AtomicU64,
+    fade_wins: AtomicU64,
+    fade_losses: AtomicU64,
+}
+
+fn publish_status(shared: &ArenaStatusShared, score: &ArenaScore, settled_total: u64) {
+    shared.settled.store(settled_total, Ordering::Relaxed);
+    shared.follow_wins.store(u64::from(score.follow_wins), Ordering::Relaxed);
+    shared.follow_losses.store(u64::from(score.follow_losses), Ordering::Relaxed);
+    shared.fade_wins.store(u64::from(score.fade_wins), Ordering::Relaxed);
+    shared.fade_losses.store(u64::from(score.fade_losses), Ordering::Relaxed);
+}
+
+/// Hybrid-mode Specialist: when coral-server spawned this process
+/// (`CORAL_CONNECTION_URL` present), the settlement poll loop keeps running
+/// unchanged and this answers `ARENA_STATUS_REQUESTED` mentions with the
+/// live scoreboard. Same transport constraint and rationale as contrarian's
+/// `ContrarianStatusSpecialist` — mention-driven status is the honest
+/// hybrid (TODO 6c option b).
+struct ArenaStatusSpecialist {
+    shared: Arc<ArenaStatusShared>,
+}
+
+#[async_trait::async_trait]
+impl Specialist for ArenaStatusSpecialist {
+    fn name(&self) -> &str {
+        "arena-coordinator"
+    }
+
+    async fn handle(&self, mention: CoralMention) -> String {
+        if wire::verb(&mention.text) != "ARENA_STATUS_REQUESTED" {
+            tracing::debug!(text = %mention.text, "arena-coordinator: ignoring non-status mention");
+            return String::new();
+        }
+        let settled = self.shared.settled.load(Ordering::Relaxed);
+        let fw = self.shared.follow_wins.load(Ordering::Relaxed);
+        let fl = self.shared.follow_losses.load(Ordering::Relaxed);
+        let dw = self.shared.fade_wins.load(Ordering::Relaxed);
+        let dl = self.shared.fade_losses.load(Ordering::Relaxed);
+        let leader = match (fw as i64 - fl as i64).cmp(&(dw as i64 - dl as i64)) {
+            std::cmp::Ordering::Greater => "FOLLOW",
+            std::cmp::Ordering::Less => "FADE",
+            std::cmp::Ordering::Equal => "TIE",
+        };
+        format!(
+            "ARENA_STATUS settled={settled} followWins={fw} followLosses={fl} fadeWins={dw} fadeLosses={dl} leader={leader}"
+        )
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -157,6 +219,25 @@ async fn main() {
     let mut settled: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut score = ArenaScore::default();
 
+    // Hybrid mode (TODO 6c): when coral-server spawned this process it also
+    // participates on the Coral bus, answering ARENA_STATUS_REQUESTED with
+    // the scoreboard snapshot published after each step. The poll loop is
+    // unchanged and stays authoritative.
+    let shared = Arc::new(ArenaStatusShared::default());
+    if std::env::var("CORAL_CONNECTION_URL").is_ok() {
+        let specialist = ArenaStatusSpecialist { shared: Arc::clone(&shared) };
+        let coral_wait_ms: u64 = env_parse("CORAL_MAX_WAIT_MS", 30_000);
+        let coral_steps: u64 = env_parse("CORAL_MAX_STEPS", 100_000);
+        tokio::spawn(async move {
+            if let Err(e) = coral_client::run(specialist, coral_wait_ms, coral_steps).await {
+                warn!(error = %e, "coral mention loop ended");
+            }
+        });
+        info!("hybrid mode: servicing ARENA_STATUS_REQUESTED on the Coral bus");
+    } else {
+        info!("standalone mode: no CORAL_CONNECTION_URL, poll loop only");
+    }
+
     loop {
         if let Err(e) = safety_check(&budget) {
             warn!(error = %e, "safety gate — shutting down");
@@ -176,8 +257,14 @@ async fn main() {
         )
         .await
         {
-            Ok(n) if n > 0 => info!(settled = n, step = steps.current(), leader = score.leader(), "positions settled"),
-            Ok(_) => info!(step = steps.current(), "no new settlements"),
+            Ok(n) => {
+                if n > 0 {
+                    info!(settled = n, step = steps.current(), leader = score.leader(), "positions settled");
+                } else {
+                    info!(step = steps.current(), "no new settlements");
+                }
+                publish_status(&shared, &score, settled.len() as u64);
+            }
             Err(e) if agent_core::error::is_retryable(&e) => warn!(error=%e, "transient — retrying"),
             Err(e) => { error!(error=%e, "fatal — shutting down"); break; }
         }
@@ -379,5 +466,53 @@ fn env_or(k: &str, default: &str) -> String {
 
 fn env_parse<T: std::str::FromStr>(k: &str, default: T) -> T {
     std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    fn mention(text: &str) -> CoralMention {
+        CoralMention {
+            thread_id: Some("t-1".into()),
+            sender: Some("match-intelligence-agent".into()),
+            text: text.to_owned(),
+        }
+    }
+
+    #[tokio::test]
+    async fn status_specialist_reports_scoreboard() {
+        let shared = Arc::new(ArenaStatusShared::default());
+        let score = ArenaScore {
+            follow_wins: 3,
+            follow_losses: 1,
+            fade_wins: 1,
+            fade_losses: 2,
+        };
+        publish_status(&shared, &score, 7);
+        let specialist = ArenaStatusSpecialist { shared };
+        let reply = specialist.handle(mention("ARENA_STATUS_REQUESTED")).await;
+        assert_eq!(
+            reply,
+            "ARENA_STATUS settled=7 followWins=3 followLosses=1 fadeWins=1 fadeLosses=2 leader=FOLLOW"
+        );
+    }
+
+    #[tokio::test]
+    async fn status_specialist_reports_tie_before_any_settlement() {
+        let specialist = ArenaStatusSpecialist { shared: Arc::new(ArenaStatusShared::default()) };
+        let reply = specialist.handle(mention("ARENA_STATUS_REQUESTED")).await;
+        assert_eq!(
+            reply,
+            "ARENA_STATUS settled=0 followWins=0 followLosses=0 fadeWins=0 fadeLosses=0 leader=TIE"
+        );
+    }
+
+    #[tokio::test]
+    async fn status_specialist_ignores_other_verbs() {
+        let specialist = ArenaStatusSpecialist { shared: Arc::new(ArenaStatusShared::default()) };
+        assert_eq!(specialist.handle(mention("SETTLE_REQUESTED wager={}")).await, "");
+    }
 }
 

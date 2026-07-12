@@ -1,0 +1,27 @@
+# Agent manifest — coral-server reads this to discover, launch, and configure
+# the agent (scanned via [registry] localAgents in coral.toml).
+# Docs: https://docs.coralos.ai/reference/agent
+#
+# Direct match for pay's coral-agents/user_proxy — the puppet API's actual
+# documented use: representing a human. See pay/CORAL.md's "Role in This
+# Repository" section: "a small idle participant that a driving process
+# sends messages *as*, so a human's actions show up in the thread as a
+# named participant."
+edition = 4
+
+[agent]
+name = "user-proxy"
+version = "0.1.0"
+description = "Minimal stand-in for a human user in test sessions. Connects to Coral and idles, letting the puppet API be used to inject messages as this agent."
+summary = "Idle puppet agent representing the human user."
+readme = "Joins a session and blocks indefinitely, allowing the puppet API to send messages on its behalf."
+
+[agent.license]
+type = "spdx"
+expression = "MIT"
+
+[options]
+AGENT_NAME = { type = "string", default = "user-proxy", description = "Market identity (matches the registry name)" }
+
+[runtimes.docker]
+image = "idle-agent:0.1.0"

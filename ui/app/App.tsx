@@ -1,59 +1,10 @@
 import { useState } from 'react'
-import { native } from '../desktop/transport'
-import type { TrackMode } from '../types'
+import { clearWalletSessionNative, native } from '../desktop/transport'
 import { Shell } from './navigation/Shell'
-import { useAgentDesk } from './hooks/useAgentDesk'
-import { AgentDashboard } from './components/AgentDashboard'
+import { epochDayLabel, useAgentDesk } from './hooks/useAgentDesk'
+import { ChatPanel } from './components/ChatPanel'
 import { WalletLogin } from './components/WalletLogin'
 import { FixtureBoard } from '../apps/shared/components/FixtureBoard'
-
-const TRACK_OPTIONS: { value: TrackMode; label: string }[] = [
-  { value: 'trading', label: 'Trading (sharp movement)' },
-  { value: 'settlement', label: 'Settlement (on-chain verify)' },
-  { value: 'fan', label: 'Fan (narrative)' },
-]
-
-// AnalyzeControl lets a user actually trigger a Coral round on the selected
-// fixture — previously `useAgentDesk.startRound()` existed on the Rust side
-// but had no UI caller at all (rig-venice ROADMAP.md Phase 7).
-function AnalyzeControl({
-  disabled,
-  onAnalyze,
-}: {
-  disabled: boolean
-  onAnalyze: (track: TrackMode) => Promise<void>
-}) {
-  const [track, setTrack] = useState<TrackMode>('trading')
-  const [running, setRunning] = useState(false)
-
-  async function handleClick() {
-    setRunning(true)
-    try {
-      await onAnalyze(track)
-    } catch (err) {
-      console.error('analyze fixture failed', err)
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  return (
-    <div className="analyzeControl">
-      <select
-        value={track}
-        onChange={(e) => setTrack(e.target.value as TrackMode)}
-        disabled={disabled || running}
-      >
-        {TRACK_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
-        ))}
-      </select>
-      <button onClick={() => void handleClick()} disabled={disabled || running}>
-        {running ? 'Analyzing…' : 'Analyze fixture'}
-      </button>
-    </div>
-  )
-}
 
 function DesktopOnlyScreen() {
   return (
@@ -72,52 +23,33 @@ function DesktopOnlyScreen() {
 
 // ── authenticated shell ────────────────────────────────────────────────────────
 
-function AppShell() {
+function AppShell({ onSignOut }: { onSignOut: () => void }) {
   const desk = useAgentDesk()
+  const selectedFixture = desk.fixtures.find((f) => f.fixtureId === desk.selectedFixtureId)
 
   return (
-    <Shell>
-      <section className="productPage agent">
-        <div className="pageTitle">
-          <div className="titleCopy">
-            <p className="eyebrow">Agent app</p>
-            <h2>Intelligence Agent</h2>
-          </div>
-          <div className="matchRibbon" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </div>
-          <span className="pageStatus">
-            {desk.selectedEvent ? `fixture ${desk.selectedEvent.fixtureId}` : 'waiting for TxLINE'}
-          </span>
-          <AnalyzeControl
-            disabled={!desk.selectedEvent}
-            onAnalyze={(track) => desk.startRound(track)}
+    <Shell onSignOut={onSignOut}>
+      <section className="productPage agent chatPage">
+        <div className="chatLayout">
+          <ChatPanel
+            items={desk.chatItems}
+            busy={desk.chatBusy}
+            busyLabel={desk.chatBusyLabel}
+            selectedFixture={selectedFixture}
+            onSend={(text) => void desk.sendChat(text)}
           />
-        </div>
-        <div className="pageGrid">
-          <div className="pageMain">
-            <AgentDashboard
-              agentRoster={desk.agentRoster}
-              safetyStatuses={desk.safetyStatuses}
-              arenaScore={desk.arenaScore}
-              settlementRecords={desk.settlementRecords}
-              leaderboard={desk.leaderboard}
-              arenaPositions={desk.arenaPositions}
-              signalRecords={desk.signalRecords}
-              toolCallRecords={desk.toolCallRecords}
-              currentRunTrace={desk.currentRunTrace}
-            />
-          </div>
-          <aside className="contextRail">
+          <aside className="chatRail">
             <FixtureBoard
               fixtures={desk.fixtures}
               loading={desk.fixturesLoading}
               error={desk.fixturesError}
               selectedFixtureId={desk.selectedFixtureId}
-              onSelect={desk.selectFixture}
+              dayLabel={epochDayLabel(desk.fixturesDay)}
+              historical={desk.fixturesDayHistorical}
+              onSelect={(fixture) => void desk.selectFixture(fixture)}
               onRefresh={() => void desk.refreshFixtures()}
+              onPrevDay={() => void desk.changeFixturesDay(desk.fixturesDay - 1)}
+              onNextDay={() => void desk.changeFixturesDay(desk.fixturesDay + 1)}
             />
           </aside>
         </div>
@@ -133,16 +65,29 @@ function AppShell() {
 // Backend protocols stay behind desktop/transport.ts and native commands.
 //
 // Auth gate: the webview shows <WalletLogin> until the user connects a Phantom
-// wallet and the local sled UserProfile is found or created.  Once
-// `authenticated` is signalled the main <AppShell> mounts.
+// wallet and the local sled UserProfile is found or created. Once
+// `authenticated` is signalled, the chat surface mounts directly — the old
+// AppPicker launcher step is gone; the Intelligence Agent is the only app.
 export default function App() {
-  if (!native) return <DesktopOnlyScreen />
-
+  // Hooks must run unconditionally on every render (Rules of Hooks) — the
+  // desktop-only gate returns AFTER them, not before.
   const [authed, setAuthed] = useState(false)
+
+  if (!native) return <DesktopOnlyScreen />
 
   if (!authed) {
     return <WalletLogin onAuthenticated={() => setAuthed(true)} />
   }
 
-  return <AppShell />
+  return (
+    <AppShell
+      onSignOut={() => {
+        // Forget the remembered session BEFORE remounting the login gate —
+        // its restore lookup runs on mount and must not find the old session.
+        void clearWalletSessionNative()
+          .catch(console.error)
+          .finally(() => setAuthed(false))
+      }}
+    />
+  )
 }

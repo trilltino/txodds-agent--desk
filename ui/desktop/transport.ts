@@ -381,6 +381,28 @@ export async function deleteUserProfileNative(publicKey: string): Promise<void> 
 }
 
 /**
+ * Return the profile of the remembered wallet session, or `null` when no
+ * session is saved (or the remembered wallet's profile was deleted).
+ * Called once on startup so returning users skip the connect flow.
+ */
+export async function getSavedSessionNative(): Promise<UserProfile | null> {
+  return command<UserProfile | null>('get_saved_session')
+}
+
+/**
+ * Remember `publicKey` as the active wallet session for auto-login.
+ * The key must already have a registered profile.
+ */
+export async function saveWalletSessionNative(publicKey: string): Promise<void> {
+  return command<void>('save_wallet_session', { publicKey })
+}
+
+/** Forget the remembered wallet session (sign out). */
+export async function clearWalletSessionNative(): Promise<void> {
+  return command<void>('clear_wallet_session')
+}
+
+/**
  * Launch a Chrome --app popup that loads the Phantom wallet extension.
  *
  * Because Phantom cannot inject `window.solana` into Tauri's WebView, this

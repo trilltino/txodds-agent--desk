@@ -1,0 +1,25 @@
+# Agent manifest — coral-server reads this to discover, launch, and configure
+# the agent (scanned via [registry] localAgents in coral.toml).
+# Docs: https://docs.coralos.ai/reference/agent
+edition = 4
+
+[agent]
+name = "fan-pundit-agent"
+version = "0.1.0"
+description = "Real, independent narrative-reaction participant. Endorses or challenges wager proposals via its own Venice LLM call, running as its own OS process — the orchestrator sees only the verdict it publishes back on the thread, not its reasoning."
+summary = "The txodds-agent-desk debate's real, independent fan-pundit specialist."
+readme = "On PUNDIT_REACT_REQUESTED wager=<json>, replies PUNDIT_REACT_VERDICT stance=endorse|challenge|no_bet reason=\"...\" wager=<json>."
+
+[agent.license]
+type = "spdx"
+expression = "MIT"
+
+[options]
+AGENT_NAME = { type = "string", default = "fan-pundit-agent", description = "Market identity (matches the registry name)" }
+VENICE_API_KEY = { type = "string", default = "", description = "Venice AI key for the pundit's independent reasoning call" }
+MAX_TOOL_ROUNDS = { type = "f64", default = 3, description = "Tool-call round cap for the Venice reasoning loop" }
+FP_MAX_WAIT_MS = { type = "f64", default = 30000, description = "Per-poll wait_for_mention timeout" }
+MAX_STEPS = { type = "f64", default = 100000, description = "Mentions handled before this process exits (safety bound, see agent_core::safety::StepCounter)" }
+
+[runtimes.docker]
+image = "fan-pundit-agent:0.1.0"

@@ -24,10 +24,13 @@
 //! describes. Wiring a real fundamentals feed is future work, not something
 //! to fake here.
 
+use agent_core::ToolTrailEntry;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 use txodds_types::{Selection, TxLineEvent, Wager, WagerStatus};
+
+use crate::services::coralos::protocol::MATCH_INTELLIGENCE_AGENT;
 
 use super::authority::{self, AuthorityPolicy, AuthorityRuling};
 
@@ -148,6 +151,10 @@ pub struct WagerProposalOutcome {
     pub ruling: Option<AuthorityRuling>,
     /// Human-readable summary for the transcript, always present.
     pub narrative: String,
+    /// Every tool call the Venice loop actually made (name + deterministic
+    /// result), for the transcript's `toolTrail` payload (TODO 6e). Empty
+    /// when the loop never ran (no market, Venice unconfigured/failed).
+    pub tool_trail: Vec<ToolTrailEntry>,
 }
 
 /// Run the fundamentals reasoning pass for one triggering event and, if the
@@ -169,6 +176,7 @@ pub async fn propose_wager(
         return WagerProposalOutcome {
             ruling: None,
             narrative: "incomplete 1X2 market odds on this event; no wager proposed".to_owned(),
+            tool_trail: Vec::new(),
         };
     };
 
@@ -176,6 +184,7 @@ pub async fn propose_wager(
         return WagerProposalOutcome {
             ruling: None,
             narrative: "Venice not configured; no wager proposed".to_owned(),
+            tool_trail: Vec::new(),
         };
     };
     let model = rig_venice::model_name();
@@ -202,29 +211,36 @@ pub async fn propose_wager(
         return WagerProposalOutcome {
             ruling: None,
             narrative: "Venice reasoning failed; no wager proposed".to_owned(),
+            tool_trail: Vec::new(),
         };
     };
+    // The loop ran — from here on every outcome (including the no-wager
+    // ones) carries the real trail of what the agent actually did.
+    let tool_trail = ToolTrailEntry::from_calls(MATCH_INTELLIGENCE_AGENT, &outcome.tool_calls);
     let Some(final_args) = outcome.final_args.clone() else {
         return WagerProposalOutcome {
             ruling: None,
             narrative: "agent did not reach a wager decision within the round cap".to_owned(),
+            tool_trail,
         };
     };
     let Ok(assessment) = serde_json::from_value::<WagerAssessment>(final_args) else {
         return WagerProposalOutcome {
             ruling: None,
             narrative: "malformed wager assessment; no wager proposed".to_owned(),
+            tool_trail,
         };
     };
 
     if !assessment.has_value {
-        return WagerProposalOutcome { ruling: None, narrative: assessment.thesis };
+        return WagerProposalOutcome { ruling: None, narrative: assessment.thesis, tool_trail };
     }
 
     let Some(selection_str) = assessment.selection.as_deref() else {
         return WagerProposalOutcome {
             ruling: None,
             narrative: "agent claimed value but named no selection; no wager proposed".to_owned(),
+            tool_trail,
         };
     };
     let (selection, market_odds) = match selection_str.to_ascii_lowercase().as_str() {
@@ -235,6 +251,7 @@ pub async fn propose_wager(
             return WagerProposalOutcome {
                 ruling: None,
                 narrative: format!("unrecognised selection '{other}'; no wager proposed"),
+                tool_trail,
             }
         }
     };
@@ -247,6 +264,7 @@ pub async fn propose_wager(
         return WagerProposalOutcome {
             ruling: None,
             narrative: "agent never called compute_model_probability; no wager proposed".to_owned(),
+            tool_trail,
         };
     };
     let field = match selection {
@@ -258,6 +276,7 @@ pub async fn propose_wager(
         return WagerProposalOutcome {
             ruling: None,
             narrative: "compute_model_probability result missing the chosen selection".to_owned(),
+            tool_trail,
         };
     };
 
@@ -278,7 +297,7 @@ pub async fn propose_wager(
     };
 
     let ruling = authority::adjudicate(wager, market_odds, policy);
-    WagerProposalOutcome { narrative: ruling.reason.clone(), ruling: Some(ruling) }
+    WagerProposalOutcome { narrative: ruling.reason.clone(), ruling: Some(ruling), tool_trail }
 }
 
 #[cfg(test)]

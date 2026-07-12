@@ -28,13 +28,17 @@ use super::{authority, context, evaluation, features, policy, pundit_agent, tool
 
 mod decision;
 mod events;
+mod fan_pundit_delegation;
 mod handoff;
 mod persistence;
+mod settlement_delegation;
 mod signal;
+mod trading_delegation;
+mod wager_proof_delegation;
 
 use decision::{action_summary, apply_decision_to_run};
 use events::{append_timeline, emit_message, emit_trace, proof_event};
-use handoff::{specialist_ack, specialist_for_track, wager_ruling_payload};
+use handoff::{specialist_for_track, wager_ruling_payload};
 use persistence::persist_run;
 use signal::{build_signal, feature_summary, signal_summary};
 
@@ -66,16 +70,68 @@ pub async fn run_match_intelligence_round(
     let mut run = empty_run(&context);
     let mut messages = Vec::new();
     let mut trace = Vec::new();
+    // Real CoralOS session/thread, created on first use by the wager-proof
+    // delegation below and reused by `publish_run`'s end-of-round batch —
+    // see `wager_proof_delegation` module docs for why this can't wait
+    // until the end of the round the way the rest of the transcript does.
+    //
+    // Eagerly reuse the app-lifetime session (`state.coralos_session_id`)
+    // here, before any delegation runs, so every delegation call below takes
+    // its `Some(session) => reuse` branch instead of minting a fresh session.
+    // Without this, every single round created its own session plus four
+    // fresh Docker containers that then sat idle and wound down within
+    // ~60s — invisible by the time anyone checked the Console. A stale
+    // persisted id (e.g. after a coral-server restart) self-heals: on
+    // failure the round falls back to its normal per-delegation lazy
+    // creation, and the next round's persisted id is refreshed below.
+    let mut live_session: Option<coralos::console::LiveSession> = None;
+    if state.config.coralos_console_enabled {
+        let persisted_session_id = state
+            .coralos_session_id
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone());
+        match coralos::console::ensure_session_with_override(
+            &state.client,
+            &state.config,
+            &run,
+            persisted_session_id,
+        )
+        .await
+        {
+            Ok(session) => {
+                if let Ok(mut guard) = state.coralos_session_id.lock() {
+                    *guard = Some(session.session_id.clone());
+                }
+                live_session = Some(session);
+            }
+            Err(_) => {
+                // Clear a possibly-stale id so the next round doesn't retry it.
+                if let Ok(mut guard) = state.coralos_session_id.lock() {
+                    *guard = None;
+                }
+            }
+        }
+    }
+    // The proof-guard-verified wager, once the wager debate below produces
+    // one — the Settlement/Fan track specialist delegations further down
+    // use this (the real, verified wager), not the raw pre-proof one.
+    let mut verified_wager: Option<txodds_types::wager::Wager> = None;
     let mut round = 1_u64;
 
     let _ = app.emit(event_bus::CORAL_SESSION, &session);
+    // Observing/normalizing the live TxLINE event and deriving features are
+    // match-intelligence-agent's own internal steps, not separate actors —
+    // narrated as itself (to user-proxy, the human), not as three fake
+    // personas the way this used to attribute them to
+    // "txline-ingest"/"txline-normalizer"/"feature-extractor".
     emit_message(
         &app,
         &session,
         &mut messages,
         round,
-        "txline-ingest",
-        vec![MATCH_INTELLIGENCE_AGENT],
+        MATCH_INTELLIGENCE_AGENT,
+        vec![USER_PROXY],
         CoralVerb::Observed,
         format!(
             "observed {:?} for fixture {}",
@@ -105,8 +161,8 @@ pub async fn run_match_intelligence_round(
         &session,
         &mut messages,
         round,
-        "txline-normalizer",
-        vec![MATCH_INTELLIGENCE_AGENT],
+        MATCH_INTELLIGENCE_AGENT,
+        vec![USER_PROXY],
         CoralVerb::Normalized,
         format!(
             "normalized fixture {} seq {} with {} stat keys",
@@ -155,24 +211,17 @@ pub async fn run_match_intelligence_round(
     );
 
     round += 1;
+    // Deriving features is match-intelligence-agent's own deterministic
+    // step (agent_core::features), not a call to a separate agent — a
+    // single self-narrated ToolResult, not a fake TOOL_CALL/TOOL_RESULT
+    // round-trip to a "feature-extractor" persona that never existed.
     emit_message(
         &app,
         &session,
         &mut messages,
         round,
         MATCH_INTELLIGENCE_AGENT,
-        vec!["feature-extractor"],
-        CoralVerb::ToolCall,
-        "derive deterministic market features",
-        Some(json!({ "tool": "feature_extractor", "fixtureId": context.event.fixture_id })),
-    );
-    emit_message(
-        &app,
-        &session,
-        &mut messages,
-        round,
-        "feature-extractor",
-        vec![MATCH_INTELLIGENCE_AGENT],
+        vec![USER_PROXY],
         CoralVerb::ToolResult,
         feature_summary(&derived),
         Some(json!({ "features": &derived })),
@@ -339,6 +388,11 @@ pub async fn run_match_intelligence_round(
                 .unwrap_or_else(|| format!("txoracle:{}", proof_receipt.note))
         });
     let wager_outcome = wager_agent::propose_wager(&context.event, wager_proof_ref, wager_policy).await;
+    // Accumulated reasoning trail for this round (TODO 6e): every Venice
+    // tool call the wager debate actually made, carried on the delegation
+    // wire messages below so the Coral transcript shows *why*, not just the
+    // verdict.
+    let mut reasoning_trail = wager_outcome.tool_trail.clone();
     round += 1;
     emit_message(
         &app,
@@ -349,7 +403,7 @@ pub async fn run_match_intelligence_round(
         vec![USER_PROXY],
         CoralVerb::ToolResult,
         wager_outcome.narrative.clone(),
-        Some(wager_ruling_payload(wager_outcome.ruling.as_ref())),
+        Some(wager_ruling_payload(wager_outcome.ruling.as_ref(), &wager_outcome.tool_trail)),
     );
     emit_trace(
         &app,
@@ -358,7 +412,7 @@ pub async fn run_match_intelligence_round(
         round,
         AgentTracePhase::ToolResult,
         wager_outcome.narrative.clone(),
-        Some(wager_ruling_payload(wager_outcome.ruling.as_ref())),
+        Some(wager_ruling_payload(wager_outcome.ruling.as_ref(), &wager_outcome.tool_trail)),
     );
     if let Some(ruling) = &wager_outcome.ruling {
         append_timeline(
@@ -374,6 +428,7 @@ pub async fn run_match_intelligence_round(
         // through the same Authority — it never sets stake or status
         // directly.
         let pundit_outcome = pundit_agent::react_to_wager(ruling, wager_policy).await;
+        reasoning_trail.extend(pundit_outcome.tool_trail.iter().cloned());
         round += 1;
         emit_message(
             &app,
@@ -384,7 +439,10 @@ pub async fn run_match_intelligence_round(
             vec![MATCH_INTELLIGENCE_AGENT, USER_PROXY],
             CoralVerb::ToolResult,
             pundit_outcome.narrative.clone(),
-            Some(wager_ruling_payload(pundit_outcome.updated_ruling.as_ref())),
+            Some(wager_ruling_payload(
+                pundit_outcome.updated_ruling.as_ref(),
+                &pundit_outcome.tool_trail,
+            )),
         );
         emit_trace(
             &app,
@@ -402,6 +460,75 @@ pub async fn run_match_intelligence_round(
                 format!("{:?}: {}", updated.wager.status, updated.reason),
             );
         }
+
+        // ── Real wager-consistency proof gate (rig-venice ROADMAP.md Phase 6,
+        //    step 1) ───────────────────────────────────────────────────────
+        //
+        // Unlike everything above, this is not a Rust function call narrated
+        // as a Coral message: `proof-guard-agent` is a separate OS process
+        // that coral-server launches and that blocks on its own
+        // `wait_for_mention` loop. This orchestrator sends the delegation
+        // over a real CoralOS thread and polls for the real reply — see
+        // `wager_proof_delegation` for why that requires the session/thread
+        // to exist now, not at the end of the round like the rest of this
+        // transcript.
+        let final_wager = pundit_outcome
+            .updated_ruling
+            .as_ref()
+            .unwrap_or(ruling)
+            .wager
+            .clone();
+        round += 1;
+        emit_message(
+            &app,
+            &session,
+            &mut messages,
+            round,
+            MATCH_INTELLIGENCE_AGENT,
+            vec![PROOF_GUARD_AGENT],
+            CoralVerb::ToolCall,
+            format!(
+                "DELEGATE wager {} to proof-guard-agent for consistency verification",
+                final_wager.wager_id
+            ),
+            Some(json!({ "wagerId": &final_wager.wager_id })),
+        );
+        let real_verdict = wager_proof_delegation::delegate(
+            &state.client,
+            &state.config,
+            &run,
+            &mut live_session,
+            &final_wager,
+            &reasoning_trail,
+        )
+        .await;
+        round += 1;
+        emit_message(
+            &app,
+            &session,
+            &mut messages,
+            round,
+            PROOF_GUARD_AGENT,
+            vec![MATCH_INTELLIGENCE_AGENT, USER_PROXY],
+            CoralVerb::ToolResult,
+            real_verdict.reason.clone(),
+            Some(json!({ "wager": &real_verdict.wager })),
+        );
+        emit_trace(
+            &app,
+            &mut trace,
+            &run.run_id,
+            round,
+            AgentTracePhase::Proof,
+            real_verdict.reason.clone(),
+            Some(json!({ "wager": &real_verdict.wager })),
+        );
+        append_timeline(
+            &mut run,
+            "WAGER_PROOF_GUARD",
+            format!("{:?}: {}", real_verdict.wager.status, real_verdict.reason),
+        );
+        verified_wager = Some(real_verdict.wager);
     }
 
     let maybe_signal = build_signal(&context, &derived);
@@ -485,7 +612,16 @@ pub async fn run_match_intelligence_round(
             action_summary(&decision),
             Some(json!({ "decision": &decision })),
         );
-        // --- multi-agent handoff: delegate to the track specialist ---
+        // --- multi-agent handoff: delegate to the real track specialist ---
+        //
+        // Unlike the old `specialist_ack()` stub, this is a real delegation:
+        // each branch below sends an actual message to a genuinely
+        // independent OS process (settlement-agent / sharp-movement-detector
+        // (trading-specialist) / fan-pundit-agent) and waits for its real
+        // reply, mirroring `wager_proof_delegation`. The `DELEGATE ...`
+        // message below stays local-only narration for the retrospective
+        // Console transcript; the real wire message each `*_delegation`
+        // module sends has its own specialist-specific grammar.
         let specialist = specialist_for_track(context.track);
         round += 1;
         emit_message(
@@ -511,34 +647,135 @@ pub async fn run_match_intelligence_round(
                 "proofGate": &proof_gate
             })),
         );
-        emit_message(
-            &app,
-            &session,
-            &mut messages,
-            round,
-            specialist,
-            vec![MATCH_INTELLIGENCE_AGENT, USER_PROXY],
-            CoralVerb::ToolResult,
-            specialist_ack(context.track, &decision.explanation),
-            Some(json!({
-                "specialist": specialist,
-                "status": "acknowledged",
-                "track": context.track
-            })),
-        );
+
+        let (handoff_status, handoff_reason) = match context.track {
+            TrackMode::Settlement => match &verified_wager {
+                Some(wager) => {
+                    let outcome = settlement_delegation::delegate(
+                        &state.client,
+                        &state.config,
+                        &run,
+                        &mut live_session,
+                        wager,
+                        &reasoning_trail,
+                    )
+                    .await;
+                    let status = outcome.status.clone();
+                    let reason = outcome.reason.clone();
+                    emit_message(
+                        &app,
+                        &session,
+                        &mut messages,
+                        round,
+                        specialist,
+                        vec![MATCH_INTELLIGENCE_AGENT, USER_PROXY],
+                        CoralVerb::ToolResult,
+                        reason.clone(),
+                        Some(json!({ "status": &outcome.status, "txSig": &outcome.tx_sig })),
+                    );
+                    (status, reason)
+                }
+                None => {
+                    let reason = "no verified wager to settle this round".to_string();
+                    emit_message(
+                        &app,
+                        &session,
+                        &mut messages,
+                        round,
+                        MATCH_INTELLIGENCE_AGENT,
+                        vec![USER_PROXY],
+                        CoralVerb::ToolResult,
+                        reason.clone(),
+                        None,
+                    );
+                    ("skipped".to_string(), reason)
+                }
+            },
+            TrackMode::Trading => {
+                let outcome = trading_delegation::delegate(
+                    &state.client,
+                    &state.config,
+                    &run,
+                    &mut live_session,
+                    &signal,
+                    &decision,
+                )
+                .await;
+                let status = outcome.status.clone();
+                let reason = outcome.reason.clone();
+                emit_message(
+                    &app,
+                    &session,
+                    &mut messages,
+                    round,
+                    specialist,
+                    vec![MATCH_INTELLIGENCE_AGENT, USER_PROXY],
+                    CoralVerb::ToolResult,
+                    reason.clone(),
+                    Some(json!({
+                        "status": &outcome.status,
+                        "positionId": &outcome.position_id,
+                        "sizeSol": outcome.size_sol
+                    })),
+                );
+                (status, reason)
+            }
+            TrackMode::Fan => match &verified_wager {
+                Some(wager) => {
+                    let outcome = fan_pundit_delegation::delegate(
+                        &state.client,
+                        &state.config,
+                        &run,
+                        &mut live_session,
+                        wager,
+                        &reasoning_trail,
+                    )
+                    .await;
+                    let status = outcome.stance.clone();
+                    let reason = outcome.reason.clone();
+                    emit_message(
+                        &app,
+                        &session,
+                        &mut messages,
+                        round,
+                        specialist,
+                        vec![MATCH_INTELLIGENCE_AGENT, USER_PROXY],
+                        CoralVerb::ToolResult,
+                        reason.clone(),
+                        Some(json!({ "stance": &outcome.stance, "wager": &outcome.wager })),
+                    );
+                    (status, reason)
+                }
+                None => {
+                    let reason = "no verified wager for fan-pundit-agent to react to".to_string();
+                    emit_message(
+                        &app,
+                        &session,
+                        &mut messages,
+                        round,
+                        MATCH_INTELLIGENCE_AGENT,
+                        vec![USER_PROXY],
+                        CoralVerb::ToolResult,
+                        reason.clone(),
+                        None,
+                    );
+                    ("skipped".to_string(), reason)
+                }
+            },
+        };
         emit_trace(
             &app,
             &mut trace,
             &run.run_id,
             round,
             AgentTracePhase::Action,
-            format!("specialist {} acknowledged handoff", specialist),
-            Some(json!({ "specialist": specialist })),
+            format!("specialist {specialist} real verdict: {handoff_status}"),
+            Some(json!({ "specialist": specialist, "status": &handoff_status })),
         );
         append_timeline(
             &mut run,
             "HANDOFF",
-            format!("{} → {}", MATCH_INTELLIGENCE_AGENT, specialist),
+            format!("{MATCH_INTELLIGENCE_AGENT} → {specialist}: {handoff_status} — {handoff_reason}"),
         );
 
         maybe_decision = Some(decision);
@@ -591,8 +828,14 @@ pub async fn run_match_intelligence_round(
         })),
     );
 
-    let console =
-        coralos::console::publish_run(&state.client, &state.config, &run, &messages).await;
+    let console = coralos::console::publish_run(
+        &state.client,
+        &state.config,
+        &run,
+        &messages,
+        live_session,
+    )
+    .await;
     append_timeline(&mut run, "CORALOS_CONSOLE", console.note.clone());
     emit_trace(
         &app,

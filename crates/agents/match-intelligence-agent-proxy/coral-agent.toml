@@ -1,0 +1,34 @@
+# Agent manifest — coral-server reads this to discover, launch, and configure
+# the agent (scanned via [registry] localAgents in coral.toml).
+# Docs: https://docs.coralos.ai/reference/agent
+#
+# [agent] name is "match-intelligence-agent" — this is NOT a fake persona.
+# The desktop app IS match-intelligence-agent; it narrates its own real
+# actions through the puppet API. There is no CoralOS mechanism for an
+# already-running process (the desktop GUI) to self-register as a session
+# participant (RuntimeId only supports coral-server-spawned executable/
+# docker/function/prototype runtimes; GraphAgentProvider's "Remote" is the
+# paid agent-marketplace feature, not self-registration — confirmed by
+# decompiling a live coral-server, see the project plan). So this manifest
+# registers a trivial, real, coral-server-spawned idle container (reusing
+# idle-agent, same image `pay`'s own coral-agents/user_proxy pattern uses)
+# purely so the puppet REST API has a valid target to post match-intelligence-
+# agent's messages to.
+edition = 4
+
+[agent]
+name = "match-intelligence-agent"
+version = "0.1.0"
+description = "The desktop app's own CoralOS identity. Connects and idles — the Tauri process publishes its real messages through the puppet API, since it cannot itself be coral-server-spawned. Legitimate self-narration, not a fake persona standing in for an independent reasoner."
+summary = "match-intelligence-agent's real, idling puppet target."
+readme = "Connects over MCP and blocks forever, exactly like pay's coral-agents/user_proxy. The desktop app posts its own messages here via the puppet API."
+
+[agent.license]
+type = "spdx"
+expression = "MIT"
+
+[options]
+AGENT_NAME = { type = "string", default = "match-intelligence-agent", description = "Market identity (matches the registry name)" }
+
+[runtimes.docker]
+image = "idle-agent:0.1.0"

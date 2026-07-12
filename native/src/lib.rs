@@ -111,6 +111,7 @@ pub fn run() {
                 export_dir,
                 user_store,
                 pending_challenges: Mutex::new(std::collections::HashMap::new()),
+                coralos_session_id: Mutex::new(None),
             });
             Ok(())
         })
@@ -154,6 +155,9 @@ pub fn run() {
             commands::auth::delete_user_profile,
             commands::auth::issue_auth_challenge,
             commands::auth::request_auth,
+            commands::auth::get_saved_session,
+            commands::auth::save_wallet_session,
+            commands::auth::clear_wallet_session,
             commands::auth::open_phantom_popup,
             commands::payments::create_solana_pay_intent,
             commands::payments::verify_solana_pay_intent,

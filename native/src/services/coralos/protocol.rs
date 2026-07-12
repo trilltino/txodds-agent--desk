@@ -15,20 +15,25 @@ pub const PROOF_GUARD_AGENT: &str = "proof-guard-agent";
 pub const SETTLEMENT_AGENT: &str = "settlement-agent";
 pub const SHARP_MOVEMENT_DETECTOR_AGENT: &str = "sharp-movement-detector";
 pub const FAN_PUNDIT_AGENT: &str = "fan-pundit-agent";
-pub const TXLINE_INGEST: &str = "txline-ingest";
-pub const TXLINE_NORMALIZER: &str = "txline-normalizer";
-pub const FEATURE_EXTRACTOR: &str = "feature-extractor";
 
-/// All named participants registered in every CoralOS session.
+/// All named participants registered in every CoralOS session. Every name
+/// here is either a real, independently-spawned process
+/// (`PROOF_GUARD_AGENT`, `SETTLEMENT_AGENT`, `SHARP_MOVEMENT_DETECTOR_AGENT`,
+/// `FAN_PUNDIT_AGENT`) or a legitimate puppet identity — `MATCH_INTELLIGENCE_AGENT`
+/// narrating its own actions, `USER_PROXY` representing the human user, both
+/// backed by a real idling container (see `crates/agents/idle-agent`) so the
+/// puppet API has a valid registered target, mirroring `pay`'s own
+/// `coral-agents/user_proxy` pattern. There used to be three more names here
+/// (`txline-ingest`, `txline-normalizer`, `feature-extractor`) narrating
+/// `match-intelligence-agent`'s own internal pipeline steps as if they were
+/// separate actors — removed, not promoted, since they never had an
+/// independent position to represent.
 pub const ALL_AGENTS: &[&str] = &[
     MATCH_INTELLIGENCE_AGENT,
     PROOF_GUARD_AGENT,
     SETTLEMENT_AGENT,
     SHARP_MOVEMENT_DETECTOR_AGENT,
     FAN_PUNDIT_AGENT,
-    TXLINE_INGEST,
-    TXLINE_NORMALIZER,
-    FEATURE_EXTRACTOR,
     USER_PROXY,
 ];
 
