@@ -6,7 +6,9 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use reqwest::Client;
 
@@ -45,6 +47,21 @@ pub struct DesktopState {
     /// fresh Docker containers — per round that winds down within ~60s.
     /// Set on first use by `run_match_intelligence_round`; `None` until then.
     pub coralos_session_id: Mutex<Option<String>>,
+    /// Runtime toggle for the autonomous live-trigger loop (see
+    /// `services::autonomous`). Initialized from `config.autonomous_enabled`;
+    /// flippable at runtime via `set_autonomous_loop_enabled` without a
+    /// restart.
+    pub autonomous_enabled: AtomicBool,
+    /// Last-seen decimal odds per (fixture_id, outcome), for the autonomous
+    /// loop's poll-to-poll diff. Not persisted — losing this on restart just
+    /// means the first poll after a restart establishes a fresh baseline
+    /// instead of comparing against pre-restart odds, which is correct
+    /// behaviour, not a bug.
+    pub autonomous_last_seen: Mutex<HashMap<(u64, String), f64>>,
+    /// Wall-clock time an autonomous round was last triggered per fixture,
+    /// enforcing `services::autonomous::MIN_RETRIGGER_INTERVAL` so a choppy
+    /// market can't spawn a round every poll cycle.
+    pub autonomous_last_triggered: Mutex<HashMap<u64, Instant>>,
 }
 
 /// Locate a named sidecar script across dev, legacy, and packaged layouts.

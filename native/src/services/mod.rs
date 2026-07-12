@@ -20,8 +20,11 @@
 //! - `backtest`: arena replay engine — walks real historical TxLINE odds and
 //!   settles simulated FollowSharp/FadeSharp positions against the real final
 //!   score (ARENA-AUTONOMY-PLAN.md Priority B).
+//! - `autonomous`: live-trigger poll loop that calls `run_match_intelligence_round`
+//!   without a human clicking Analyze (ARENA-AUTONOMY-PLAN.md Priority A).
 
 pub mod agent;
+pub mod autonomous;
 pub mod backtest;
 pub mod chain;
 pub mod coral;

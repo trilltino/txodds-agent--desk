@@ -147,8 +147,18 @@ sidecars-check:
 check-bundle-deps:
     npm run check:bundle-deps
 
-# Run the full local verification set (typecheck + rust-check + sidecars + bundle deps).
-check: typecheck rust-check sidecars-check check-bundle-deps
+# Fail if any tracked-looking file (source, config, docs — not build output,
+# which .gitignore already excludes) sits untracked in the working tree.
+# AppPicker.tsx once existed on disk, working, for an unknown span of this
+# repo's history without ever being `git add`-ed (confirmed via
+# `git log --all --follow` returning nothing for it) — this catches that
+# class of mistake before a build/release, not months later.
+git-clean-check:
+    $untracked = git status --porcelain --untracked-files=all | Select-String '^\?\? '; \
+    if ($untracked) { Write-Host "Untracked files found — add them or .gitignore them:"; $untracked; exit 1 } else { Write-Host "git-clean-check: no untracked files" }
+
+# Run the full local verification set (typecheck + rust-check + sidecars + bundle deps + git hygiene).
+check: typecheck rust-check sidecars-check check-bundle-deps git-clean-check
 
 # ── Housekeeping ──────────────────────────────────────────────────────────────
 

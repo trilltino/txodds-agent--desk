@@ -94,12 +94,16 @@ function humanizeReason(reason: string): string | undefined {
   return reason
 }
 
-/** One-line natural-language answer for "what's the score?" style questions. */
+/**
+ * One-line natural-language answer for "what's the score?" style questions.
+ * Always ends with the simulated-positions disclaimer — this is a scored
+ * contest, not a real economic one (E2E-AGENTIC-GAPS-PLAN.md #3).
+ */
 export function describeArenaScore(score: ArenaScore | undefined): string {
-  if (!score) return 'No settlements yet — the Follow vs Fade contest starts once positions settle.'
+  if (!score) return 'No settlements yet — the Follow vs Fade contest starts once positions settle. (Simulated positions — no funds at risk.)'
   return (
     `Follow Sharp is ${score.followWins}W–${score.followLosses}L (${score.followPnl >= 0 ? '+' : ''}${score.followPnl.toFixed(1)} pts), ` +
     `Fade Sharp is ${score.fadeWins}W–${score.fadeLosses}L (${score.fadePnl >= 0 ? '+' : ''}${score.fadePnl.toFixed(1)} pts). ` +
-    `Current leader: ${score.leader}.`
+    `Current leader: ${score.leader}. (Simulated positions — no funds at risk.)`
   )
 }

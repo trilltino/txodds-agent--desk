@@ -66,6 +66,13 @@ pub struct AppConfig {
     /// be handed to a Docker-spawned agent's `DESK_API_BASE` option at
     /// session-start, before the server would otherwise report its port.
     pub axum_port: u16,
+    /// Whether the autonomous live-trigger loop starts enabled. Defaults on
+    /// — the whole point of ARENA-AUTONOMY-PLAN.md Priority A is that a
+    /// round can happen without anyone clicking Analyze. Runtime-togglable
+    /// via `set_autonomous_loop_enabled` regardless of this default.
+    pub autonomous_enabled: bool,
+    /// Poll interval for the autonomous loop, in seconds.
+    pub autonomous_poll_secs: u64,
 }
 
 // Redacted config returned to React. It exposes feature status and public
@@ -144,6 +151,10 @@ impl AppConfig {
             axum_port: optional_env("DESK_AXUM_PORT")
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(47990),
+            autonomous_enabled: bool_env("AUTONOMOUS_ENABLED", true),
+            autonomous_poll_secs: optional_env("AUTONOMOUS_POLL_SECS")
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(60),
         }
     }
 

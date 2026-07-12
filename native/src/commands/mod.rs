@@ -14,9 +14,11 @@
 //! - `payments`: Solana Pay payment intent create/verify/list.
 //! - `backtest`: replay a completed fixture's real TxLINE history and settle
 //!   simulated arena positions against its real final score.
+//! - `autonomous`: enable/disable the autonomous live-trigger loop at runtime.
 
 pub mod arena;
 pub mod auth;
+pub mod autonomous;
 pub mod backtest;
 pub mod chain;
 pub mod config;

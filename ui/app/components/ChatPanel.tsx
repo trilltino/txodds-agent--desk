@@ -21,6 +21,9 @@ interface Props {
   selectedFixture?: Fixture
   /** True when the fixture board is showing a past (completed-match) day. */
   historical?: boolean
+  /** Whether the autonomous live-trigger loop is currently allowed to act. */
+  autonomousEnabled: boolean
+  onToggleAutonomous: (enabled: boolean) => void
   onSend: (text: string) => void
 }
 
@@ -68,7 +71,16 @@ function TypingIndicator({ label }: { label?: string }) {
   )
 }
 
-export function ChatPanel({ items, busy, busyLabel, selectedFixture, historical, onSend }: Props) {
+export function ChatPanel({
+  items,
+  busy,
+  busyLabel,
+  selectedFixture,
+  historical,
+  autonomousEnabled,
+  onToggleAutonomous,
+  onSend,
+}: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Follow the conversation: scroll to the newest message whenever the log
@@ -94,6 +106,19 @@ export function ChatPanel({ items, busy, busyLabel, selectedFixture, historical,
               : 'waiting for a fixture'}
           </span>
         </div>
+        <button
+          type="button"
+          className={`chatAutoToggle${autonomousEnabled ? ' on' : ''}`}
+          onClick={() => onToggleAutonomous(!autonomousEnabled)}
+          title={
+            autonomousEnabled
+              ? 'Autonomous loop is on — it can trigger rounds on its own when live odds move. Click to pause.'
+              : 'Autonomous loop is paused — rounds only run when you ask. Click to let it act on its own.'
+          }
+        >
+          <span className="chatAutoDot" aria-hidden="true" />
+          Auto {autonomousEnabled ? 'on' : 'off'}
+        </button>
       </header>
 
       <div className="chatScroll" ref={scrollRef}>

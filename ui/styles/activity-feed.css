@@ -181,6 +181,15 @@
 .feedOutcome[data-won="true"]  { color: #2b8a3e; }
 .feedOutcome[data-won="false"] { color: #c92a2a; }
 
+/* ── Simulation disclaimer — every ArenaPosition/SettlementRecord card carries
+   this, since no real funds move on these (E2E-AGENTIC-GAPS-PLAN.md #3) ── */
+.feedSimNote {
+  margin: 6px 0 0;
+  font-size: 11px;
+  font-style: italic;
+  color: #9aa8a1;
+}
+
 /* ── Win/Loss highlight borders ── */
 
 .feedWin  { border-left: 3px solid #2b8a3e; }

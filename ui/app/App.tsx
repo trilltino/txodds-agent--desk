@@ -38,6 +38,8 @@ function AppShell({ onSignOut, onBack }: { onSignOut: () => void; onBack: () => 
             busyLabel={desk.chatBusyLabel}
             selectedFixture={selectedFixture}
             historical={desk.fixturesDayHistorical}
+            autonomousEnabled={desk.autonomousEnabled}
+            onToggleAutonomous={(enabled) => void desk.setAutonomousEnabled(enabled)}
             onSend={(text) => void desk.sendChat(text)}
           />
           <aside className="chatRail">

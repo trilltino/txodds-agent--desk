@@ -121,6 +121,7 @@ function PositionCard({ position }: { position: ArenaPosition }) {
             </span>
           </div>
         )}
+        <p className="feedSimNote">Simulated position — no funds at risk.</p>
       </div>
     </div>
   )
@@ -144,6 +145,7 @@ function SettlementCard({ record }: { record: SettlementRecord }) {
             {record.selection} · {record.strategy} · odds {record.oddsAtEntry.toFixed(2)}
           </span>
         </div>
+        <p className="feedSimNote">Simulated settlement — no funds at risk.</p>
       </div>
     </div>
   )

@@ -72,10 +72,13 @@ pub struct BacktestSummary {
 }
 
 /// One parsed 1X2 odds tick: a single outcome's decimal price at a moment.
-struct OddsTick {
-    ts: i64,
-    outcome: &'static str,
-    decimal: f64,
+/// `pub(crate)` (with `parse_market_rows` below) so `services::autonomous`
+/// can reuse the exact same odds-row parsing for its live snapshot diffing —
+/// one parser, not two copies that could drift.
+pub(crate) struct OddsTick {
+    pub(crate) ts: i64,
+    pub(crate) outcome: &'static str,
+    pub(crate) decimal: f64,
 }
 
 /// Replay one completed fixture's real odds history and settle simulated
@@ -246,7 +249,7 @@ fn tally(agent_id: &str, strategy: Strategy, positions: &[ArenaPosition]) -> Str
     }
 }
 
-fn ts_to_iso(ts_ms: i64) -> String {
+pub(crate) fn ts_to_iso(ts_ms: i64) -> String {
     chrono::DateTime::from_timestamp_millis(ts_ms)
         .map_or_else(now_iso, |dt| dt.to_rfc3339())
 }
@@ -327,12 +330,14 @@ async fn fetch_ticks_and_final_score(
     Ok((ticks, latest_score))
 }
 
-/// Parse one interval response's market rows into flat `OddsTick`s, keeping
-/// only this fixture's full-time 1X2 market. Mirrors
-/// `ui/core/txline/fixtures.ts`'s `marketRowQuotes` + `isMatchWinnerSet`
-/// filtering (milli-odds ÷1000, `part1`/`part2` → `home`/`away`), scoped down
-/// to just the primary market since that's all a backtest replay needs.
-fn parse_market_rows(raw: &Value, fixture_id: u64, out: &mut Vec<OddsTick>) {
+/// Parse one odds response's market rows into flat `OddsTick`s, keeping only
+/// this fixture's full-time 1X2 market. Mirrors `ui/core/txline/fixtures.ts`'s
+/// `marketRowQuotes` + `isMatchWinnerSet` filtering (milli-odds ÷1000,
+/// `part1`/`part2` → `home`/`away`), scoped down to just the primary market.
+/// Same row shape whether `raw` came from an interval-window response or a
+/// live snapshot response — verified against both live (see
+/// `services::autonomous`, which reuses this for its odds diffing).
+pub(crate) fn parse_market_rows(raw: &Value, fixture_id: u64, out: &mut Vec<OddsTick>) {
     let Some(rows) = raw.as_array() else { return };
     for row in rows {
         if row.get("FixtureId").and_then(Value::as_u64) != Some(fixture_id) {

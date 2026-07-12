@@ -341,17 +341,37 @@ fn agent_graph_entry(name: &str, config: &AppConfig) -> Value {
     // Only fan-pundit-agent is both LLM-driven (rig-venice) and Docker-spawned
     // as part of this graph (see crates/agents/*/Cargo.toml — every other
     // participant here is deterministic Rust, no LLM, nothing to research
-    // with). Give it the loopback diagnostics reach for the Get* tools in
-    // crates/rig-venice/src/tools.rs, and only when the operator has
-    // explicitly turned the diagnostics server on (`DESK_AXUM_ENABLED`) —
-    // otherwise these options are simply absent and the agent's tools no-op.
-    if name == FAN_PUNDIT_AGENT && config.axum_enabled {
-        let base = format!("http://host.docker.internal:{}", config.axum_port);
-        options.insert("DESK_API_BASE".to_string(), json!({ "type": "string", "value": base }));
-        options.insert(
-            "DESK_API_TOKEN".to_string(),
-            json!({ "type": "string", "value": config.axum_token }),
-        );
+    // with).
+    if name == FAN_PUNDIT_AGENT {
+        // Without this, the container's VENICE_API_KEY option falls back to
+        // its coral-agent.toml default of "" — not a missing var (which
+        // rig_venice::client() would reject with a clear error) but an empty
+        // one, which builds a client that fails Venice's auth silently.
+        // fan-pundit-agent's own run_venice_verdict then catches that as a
+        // normal "Venice reasoning failed" and falls back to endorsing with
+        // a plausible-looking reason — so this agent's reasoning could be
+        // dead in every real run with nothing externally visible to say so.
+        // E2E-AGENTIC-GAPS-PLAN.md #1.
+        if let Some(venice_key) = &config.venice_api_key {
+            options.insert(
+                "VENICE_API_KEY".to_string(),
+                json!({ "type": "string", "value": venice_key }),
+            );
+        }
+
+        // Loopback diagnostics reach for the Get* research tools in
+        // crates/rig-venice/src/tools.rs, only when the operator has
+        // explicitly turned the diagnostics server on (`DESK_AXUM_ENABLED`)
+        // — otherwise these options are simply absent and the agent's tools
+        // no-op.
+        if config.axum_enabled {
+            let base = format!("http://host.docker.internal:{}", config.axum_port);
+            options.insert("DESK_API_BASE".to_string(), json!({ "type": "string", "value": base }));
+            options.insert(
+                "DESK_API_TOKEN".to_string(),
+                json!({ "type": "string", "value": config.axum_token }),
+            );
+        }
     }
 
     json!({

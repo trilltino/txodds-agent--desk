@@ -48,6 +48,38 @@
 }
 
 .chatHeaderCopy { display: grid; gap: 1px; min-width: 0; }
+
+/* ── Autonomous loop toggle ── */
+
+.chatAutoToggle {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  min-height: 0;
+  border-radius: 999px;
+  background: #f0f2ef;
+  color: var(--muted, #60706a);
+  border: 1px solid #d8ddce;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: none;
+}
+.chatAutoToggle:hover:not(:disabled) { background: #e7ebe5; transform: none; }
+.chatAutoToggle.on {
+  background: var(--pitch-light, #e7f4ec);
+  color: var(--pitch-deep, #07362f);
+  border-color: #9dc2ab;
+}
+.chatAutoDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #9aa8a1;
+}
+.chatAutoToggle.on .chatAutoDot { background: #37b24d; }
 .chatHeaderCopy strong { font-size: 14px; color: var(--ink, #13211c); }
 .chatHeaderStatus { font-size: 12px; color: var(--muted, #60706a); overflow-wrap: anywhere; }
 

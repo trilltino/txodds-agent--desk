@@ -274,6 +274,22 @@ export async function listBacktestSettlementsNative(fixtureId?: number): Promise
   return command<unknown[]>('list_backtest_settlements', fixtureId !== undefined ? { fixtureId } : {})
 }
 
+// ── Autonomous loop commands ────────────────────────────────────────────────────
+
+/**
+ * Enable or disable the autonomous live-trigger loop without a restart. The
+ * loop polls live fixtures and calls the same round logic the chat's
+ * Analyze action does — this only flips whether it's allowed to act.
+ */
+export async function setAutonomousLoopEnabledNative(enabled: boolean): Promise<void> {
+  return command<void>('set_autonomous_loop_enabled', { enabled })
+}
+
+/** Current state of the autonomous loop toggle. */
+export async function getAutonomousLoopEnabledNative(): Promise<boolean> {
+  return command<boolean>('get_autonomous_loop_enabled')
+}
+
 /**
  * Fetch live safety gate telemetry for one sidecar agent.
  * Returns budget consumption and step counter telemetry.

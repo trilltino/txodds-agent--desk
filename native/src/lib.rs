@@ -97,6 +97,8 @@ pub fn run() {
                 ));
             }
 
+            let autonomous_enabled_initial = config.autonomous_enabled;
+
             app.manage(DesktopState {
                 config,
                 client: Client::builder()
@@ -114,7 +116,17 @@ pub fn run() {
                 user_store,
                 pending_challenges: Mutex::new(std::collections::HashMap::new()),
                 coralos_session_id: Mutex::new(None),
+                autonomous_enabled: std::sync::atomic::AtomicBool::new(autonomous_enabled_initial),
+                autonomous_last_seen: Mutex::new(std::collections::HashMap::new()),
+                autonomous_last_triggered: Mutex::new(std::collections::HashMap::new()),
             });
+
+            // Fire-and-forget: the loop polls forever and logs/retries its own
+            // failures (see services::autonomous), so its JoinHandle is not
+            // tracked/aborted anywhere — it lives for the app's lifetime,
+            // same posture as the axum diagnostics loopback above.
+            std::mem::drop(services::autonomous::spawn(app.handle().clone()));
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -165,7 +177,9 @@ pub fn run() {
             commands::payments::verify_solana_pay_intent,
             commands::payments::list_payment_intents,
             commands::backtest::run_backtest,
-            commands::backtest::list_backtest_settlements
+            commands::backtest::list_backtest_settlements,
+            commands::autonomous::set_autonomous_loop_enabled,
+            commands::autonomous::get_autonomous_loop_enabled
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

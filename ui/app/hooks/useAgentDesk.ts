@@ -27,6 +27,7 @@ import { epochDayNow, loadFixtureEvent, loadLiveFixtures } from '../../core/txli
 import { loadCoralAgents } from '../../core/coral/agents'
 import {
   getArenaScoreNative,
+  getAutonomousLoopEnabledNative,
   listAgentLeaderboardNative,
   listAgentTraceNative,
   listArenaPositionsNative,
@@ -44,6 +45,7 @@ import {
   onSignalRecord,
   onToolCallRecord,
   runAgentRoundNative,
+  setAutonomousLoopEnabledNative,
   runBacktestNative,
 } from '../../desktop/transport'
 
@@ -105,6 +107,8 @@ export interface AgentDeskState {
   chatBusy: boolean
   /** Latest trace summary while a round is in flight — drives the typing indicator label. */
   chatBusyLabel: string | undefined
+  /** Whether the autonomous live-trigger loop is currently allowed to act. */
+  autonomousEnabled: boolean
   // Derived
   currentRun: AgentRun | undefined
   currentProof: TxLineProofReceipt | undefined
@@ -117,6 +121,8 @@ export interface AgentDeskState {
   selectFixture: (fixture: Fixture) => Promise<TxLineEvent | undefined>
   startRound: (track?: TrackMode, event?: TxLineEvent) => Promise<AgentRun | undefined>
   sendChat: (text: string) => Promise<void>
+  /** Enable/disable the autonomous loop; resolves once the backend confirms. */
+  setAutonomousEnabled: (enabled: boolean) => Promise<void>
 }
 
 /**
@@ -161,6 +167,10 @@ export function useAgentDesk(): AgentDeskState {
   const [localTurns, setLocalTurns] = useState<ChatItem[]>([])
   const [chatBusy, setChatBusy] = useState(false)
   const [chatBusyLabel, setChatBusyLabel] = useState<string>()
+  // Autonomous live-trigger loop toggle (services::autonomous). Loaded once
+  // on mount from the backend's own state, not assumed — the backend's
+  // config default (on) may differ from what a previous session left it as.
+  const [autonomousEnabled, setAutonomousEnabledState] = useState(false)
   // Read inside sendChat without re-creating the callback per score update.
   const arenaScoreRef = useRef<ArenaScore | undefined>(undefined)
   arenaScoreRef.current = arenaScore
@@ -348,6 +358,7 @@ export function useAgentDesk(): AgentDeskState {
     })
 
     void listRunsNative().then(setRuns).catch(console.error)
+    void getAutonomousLoopEnabledNative().then(setAutonomousEnabledState).catch(console.error)
     void refreshFixtures()
     void listArenaPositionsNative().then(setArenaPositions).catch(console.error)
     void listSettlementRecordsNative().then(setSettlementRecords).catch(console.error)
@@ -609,6 +620,14 @@ export function useAgentDesk(): AgentDeskState {
     }
   }
 
+  // Flip the backend's autonomous-loop toggle and reflect it locally only
+  // once the native call actually succeeds — an optimistic update here could
+  // show "on" while the backend silently stayed off.
+  async function setAutonomousEnabled(enabled: boolean) {
+    await setAutonomousLoopEnabledNative(enabled)
+    setAutonomousEnabledState(enabled)
+  }
+
   return {
     selectedEvent,
     fixtures,
@@ -631,6 +650,7 @@ export function useAgentDesk(): AgentDeskState {
     chatItems,
     chatBusy,
     chatBusyLabel,
+    autonomousEnabled,
     currentRun,
     currentProof,
     currentRunTrace,
@@ -640,5 +660,6 @@ export function useAgentDesk(): AgentDeskState {
     selectFixture,
     startRound,
     sendChat,
+    setAutonomousEnabled,
   }
 }
