@@ -159,6 +159,35 @@ impl LedgerStore {
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+
+            -- Deliberately a separate table from arena_settlements, not a
+            -- shared one with a source flag: backtest replays are simulated
+            -- history, not live-tournament results, and must never be
+            -- queryable by the same leaderboard/score commands the live
+            -- system uses without the caller explicitly asking for backtest
+            -- data (ARENA-AUTONOMY-PLAN.md Priority B, integrity note).
+            CREATE TABLE IF NOT EXISTS backtest_settlements (
+                position_id TEXT PRIMARY KEY,
+                fixture_id INTEGER NOT NULL,
+                fixture_home TEXT NOT NULL,
+                fixture_away TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                strategy TEXT NOT NULL,
+                market_key TEXT NOT NULL,
+                selection TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                odds_at_entry REAL NOT NULL,
+                odds_move_pct REAL NOT NULL,
+                confidence REAL NOT NULL,
+                result TEXT NOT NULL,
+                pnl_units REAL NOT NULL,
+                final_score TEXT NOT NULL,
+                recorded_at TEXT NOT NULL,
+                settled_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_backtest_settlements_fixture
+                ON backtest_settlements (fixture_id);
             ",
         )?;
         Ok(Self { conn })
@@ -794,5 +823,110 @@ impl LedgerStore {
         }
 
         Ok(sessions)
+    }
+
+    // ── Backtest settlements ─────────────────────────────────────────────────
+    //
+    // A backtest replay is a full recompute of one fixture's history each
+    // time it runs — not an incremental append — so re-running it for the
+    // same fixture replaces the prior rows rather than accumulating
+    // duplicates or requiring per-row idempotency keys.
+
+    /// Replace all backtest settlement rows for `fixture_id` with `positions`
+    /// (already-settled `agent_core::arena::ArenaPosition`s). Runs in one
+    /// transaction so a partial write never leaves stale + fresh rows mixed.
+    pub fn replace_backtest_settlements(
+        &mut self,
+        fixture_id: i64,
+        fixture_home: &str,
+        fixture_away: &str,
+        positions: &[agent_core::arena::ArenaPosition],
+    ) -> Result<(), AppError> {
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "DELETE FROM backtest_settlements WHERE fixture_id = ?1",
+            params![fixture_id],
+        )?;
+        for position in positions {
+            let Some(outcome) = &position.outcome else {
+                continue; // Only settled positions belong in this table.
+            };
+            tx.execute(
+                "INSERT INTO backtest_settlements (
+                    position_id, fixture_id, fixture_home, fixture_away, agent_id, strategy,
+                    market_key, selection, direction, odds_at_entry, odds_move_pct, confidence,
+                    result, pnl_units, final_score, recorded_at, settled_at
+                ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+                params![
+                    position.position_id,
+                    fixture_id,
+                    fixture_home,
+                    fixture_away,
+                    position.agent_id,
+                    format!("{:?}", position.strategy),
+                    position.market_key,
+                    position.selection,
+                    format!("{:?}", position.direction),
+                    position.odds_at_entry,
+                    position.odds_move_pct,
+                    position.confidence,
+                    if outcome.selection_won { "win" } else { "loss" },
+                    outcome.pnl_points,
+                    outcome.final_score,
+                    position.recorded_at,
+                    outcome.settled_at,
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// List backtest settlement rows, optionally scoped to one fixture.
+    pub fn list_backtest_settlements(
+        &self,
+        fixture_id: Option<i64>,
+    ) -> Result<Vec<crate::domain::arena::BacktestSettlementRow>, AppError> {
+        let map_row = |row: &rusqlite::Row<'_>| {
+            Ok(crate::domain::arena::BacktestSettlementRow {
+                position_id: row.get(0)?,
+                fixture_id: row.get(1)?,
+                fixture_home: row.get(2)?,
+                fixture_away: row.get(3)?,
+                agent_id: row.get(4)?,
+                strategy: row.get(5)?,
+                market_key: row.get(6)?,
+                selection: row.get(7)?,
+                direction: row.get(8)?,
+                odds_at_entry: row.get(9)?,
+                odds_move_pct: row.get(10)?,
+                confidence: row.get(11)?,
+                result: row.get(12)?,
+                pnl_units: row.get(13)?,
+                final_score: row.get(14)?,
+                recorded_at: row.get(15)?,
+                settled_at: row.get(16)?,
+            })
+        };
+        let rows: Vec<crate::domain::arena::BacktestSettlementRow> = if let Some(fid) = fixture_id {
+            let mut stmt = self.conn.prepare(
+                "SELECT position_id, fixture_id, fixture_home, fixture_away, agent_id, strategy,
+                        market_key, selection, direction, odds_at_entry, odds_move_pct, confidence,
+                        result, pnl_units, final_score, recorded_at, settled_at
+                 FROM backtest_settlements WHERE fixture_id = ?1 ORDER BY recorded_at ASC",
+            )?;
+            let r = stmt.query_map(params![fid], map_row)?.collect::<Result<_, _>>()?;
+            r
+        } else {
+            let mut stmt = self.conn.prepare(
+                "SELECT position_id, fixture_id, fixture_home, fixture_away, agent_id, strategy,
+                        market_key, selection, direction, odds_at_entry, odds_move_pct, confidence,
+                        result, pnl_units, final_score, recorded_at, settled_at
+                 FROM backtest_settlements ORDER BY recorded_at ASC",
+            )?;
+            let r = stmt.query_map([], map_row)?.collect::<Result<_, _>>()?;
+            r
+        };
+        Ok(rows)
     }
 }

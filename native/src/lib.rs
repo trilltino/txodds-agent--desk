@@ -92,6 +92,8 @@ pub fn run() {
                     config.public(),
                     config.axum_token.clone(),
                     ledger.clone(),
+                    config.axum_bind.clone(),
+                    config.axum_port,
                 ));
             }
 
@@ -161,7 +163,9 @@ pub fn run() {
             commands::auth::open_phantom_popup,
             commands::payments::create_solana_pay_intent,
             commands::payments::verify_solana_pay_intent,
-            commands::payments::list_payment_intents
+            commands::payments::list_payment_intents,
+            commands::backtest::run_backtest,
+            commands::backtest::list_backtest_settlements
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

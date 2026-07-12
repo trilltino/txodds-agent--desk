@@ -17,6 +17,7 @@ import type {
   AgentSafetyStatus,
   ArenaPosition,
   ArenaScore,
+  BacktestSummary,
   CapabilityKind,
   SettlementRecord,
   SignalRecord,
@@ -43,6 +44,7 @@ import {
   onSignalRecord,
   onToolCallRecord,
   runAgentRoundNative,
+  runBacktestNative,
 } from '../../desktop/transport'
 
 // Capability token assignment for the four known sidecar agents.
@@ -172,6 +174,11 @@ export function useAgentDesk(): AgentDeskState {
   function pushRoundTurn(run: AgentRun) {
     const id = `local-${++localTurnSeq.current}`
     setLocalTurns((prev) => [...prev, { kind: 'round', id, run, ts: Date.now() }])
+  }
+
+  function pushBacktestTurn(summary: BacktestSummary) {
+    const id = `local-${++localTurnSeq.current}`
+    setLocalTurns((prev) => [...prev, { kind: 'backtest', id, summary, ts: Date.now() }])
   }
 
   // ── Derived ──────────────────────────────────────────────────────────────
@@ -526,6 +533,43 @@ export function useAgentDesk(): AgentDeskState {
         'agent',
         'I couldn’t match that to a fixture. Pick one from the fixture board, or name both teams — e.g. "Analyze Norway vs England" (add "as of yesterday 18:00" for a historical snapshot).',
       )
+      return
+    }
+
+    // Backtest: replay a completed fixture's real odds history and settle
+    // simulated positions against its real final score — checked before the
+    // live-round track logic, since it's a distinct backend path (see
+    // ARENA-AUTONOMY-PLAN.md Priority B). Needs a known kickoff time to
+    // window the historical odds fetch; day-browsing to a past date (or an
+    // explicit "as of" phrase) is how `target` gets resolved to a completed
+    // fixture not on today's board — same resolution already used above.
+    if (/backtest|back-test/.test(lower)) {
+      if (!target.startTime) {
+        pushLocalTurn(
+          'agent',
+          `I don't have a kickoff time for ${target.home} vs ${target.away}, so I can't window the odds history — try selecting it from a past day on the fixture board first.`,
+        )
+        return
+      }
+      setChatBusy(true)
+      setChatBusyLabel('Replaying historical odds…')
+      pushLocalTurn(
+        'agent',
+        `On it — replaying ${target.home} vs ${target.away}'s real TxLINE odds history and settling simulated Follow/Fade positions against the final score. This is simulated history, not a live result.`,
+      )
+      try {
+        const kickoffMs = new Date(target.startTime).getTime()
+        const summary = await runBacktestNative(target.fixtureId, target.home, target.away, kickoffMs)
+        pushBacktestTurn(summary)
+      } catch (err) {
+        pushLocalTurn(
+          'agent',
+          `That backtest failed: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      } finally {
+        setChatBusy(false)
+        setChatBusyLabel(undefined)
+      }
       return
     }
 

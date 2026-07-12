@@ -576,6 +576,308 @@ impl Tool for ComputeFairProbability {
     }
 }
 
+// ── Desk diagnostics tools (leaderboard / history) ────────────────────────────
+//
+// Read-only wrappers over the desktop app's loopback diagnostics API
+// (`native/src/web.rs`), which itself wraps `LedgerStore`. Added so an
+// LLM-driven agent can look up its own (and others') past performance before
+// narrating/signaling, per rig-venice ROADMAP.md's tool-surface expansion.
+//
+// `api_base` is empty when the operator hasn't turned on the diagnostics
+// server (`DESK_AXUM_ENABLED`, off by default) or the agent wasn't given a
+// `DESK_API_BASE` — every tool here fails fast with a clear message instead
+// of attempting a request against an empty host, so an agent whose builder
+// includes these tools "just because" degrades to "tool unavailable" rather
+// than a confusing network error.
+
+fn desk_diagnostics_unconfigured() -> ToolCallError {
+    ToolCallError(
+        "desk diagnostics API not configured (DESK_API_BASE unset) — this tool is unavailable"
+            .to_owned(),
+    )
+}
+
+async fn get_desk_json(
+    http: &reqwest::Client,
+    api_base: &str,
+    token: &str,
+    path: &str,
+    query: &[(&str, String)],
+) -> Result<serde_json::Value, ToolCallError> {
+    if api_base.is_empty() {
+        return Err(desk_diagnostics_unconfigured());
+    }
+    let resp = http
+        .get(format!("{api_base}{path}"))
+        .header("Authorization", format!("Bearer {token}"))
+        .query(query)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| ToolCallError(format!("HTTP request failed: {e}")))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(ToolCallError(format!("desk diagnostics returned HTTP {status}: {body}")));
+    }
+
+    let raw: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| ToolCallError(format!("JSON parse failed: {e}")))?;
+
+    let serialised = serde_json::to_string(&raw)
+        .map_err(|e| ToolCallError(format!("re-serialise failed: {e}")))?;
+    if serialised.len() > 32_768 {
+        return Err(ToolCallError("desk diagnostics response exceeded 32 KiB safety limit".to_owned()));
+    }
+
+    Ok(raw)
+}
+
+// ── GetAgentLeaderboard ────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetAgentLeaderboardInput {}
+
+/// Per-agent leaderboard (win rate, cumulative PnL) computed deterministically
+/// from settled arena positions. Read-only — the LLM never computes this
+/// itself, only reads and narrates it.
+pub struct GetAgentLeaderboard {
+    pub http: reqwest::Client,
+    pub api_base: String,
+    token: std::sync::Arc<str>,
+}
+
+impl GetAgentLeaderboard {
+    pub fn new(api_base: String, token: String) -> Self {
+        Self { http: reqwest::Client::new(), api_base, token: token.into() }
+    }
+}
+
+impl Tool for GetAgentLeaderboard {
+    const NAME: &'static str = "get_agent_leaderboard";
+
+    type Error = ToolCallError;
+    type Args = GetAgentLeaderboardInput;
+    type Output = serde_json::Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        serde_json::to_value(schemars::schema_for!(GetAgentLeaderboardInput))
+            .map(|parameters| ToolDefinition {
+                name: Self::NAME.to_owned(),
+                description: "Get the deterministic per-agent leaderboard (positions taken/won, \
+                    win rate, cumulative PnL points) across all settled arena positions. Use this \
+                    before signaling or narrating to check how reliable an agent's recent track \
+                    record has actually been. Read-only, no side effects."
+                    .to_owned(),
+                parameters,
+            })
+            .unwrap_or_else(|e| {
+                warn!("GetAgentLeaderboardInput schema generation failed: {e}");
+                ToolDefinition {
+                    name: Self::NAME.to_owned(),
+                    description: "get_agent_leaderboard (schema unavailable)".to_owned(),
+                    parameters: serde_json::json!({}),
+                }
+            })
+    }
+
+    async fn call(&self, _args: Self::Args) -> Result<Self::Output, Self::Error> {
+        get_desk_json(&self.http, &self.api_base, &self.token, "/api/leaderboard", &[]).await
+    }
+}
+
+// ── GetRecentSignals ───────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetRecentSignalsInput {
+    /// Restrict to one TxLINE fixture. Omit to see signals across all fixtures.
+    pub fixture_id: Option<u64>,
+    /// Maximum rows to return (default 20, capped at 200).
+    pub limit: Option<u32>,
+}
+
+/// Recent sharp-movement signals this system has detected, newest first.
+pub struct GetRecentSignals {
+    pub http: reqwest::Client,
+    pub api_base: String,
+    token: std::sync::Arc<str>,
+}
+
+impl GetRecentSignals {
+    pub fn new(api_base: String, token: String) -> Self {
+        Self { http: reqwest::Client::new(), api_base, token: token.into() }
+    }
+}
+
+impl Tool for GetRecentSignals {
+    const NAME: &'static str = "get_recent_signals";
+
+    type Error = ToolCallError;
+    type Args = GetRecentSignalsInput;
+    type Output = serde_json::Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        serde_json::to_value(schemars::schema_for!(GetRecentSignalsInput))
+            .map(|parameters| ToolDefinition {
+                name: Self::NAME.to_owned(),
+                description: "List recently detected sharp-movement signals (fixture, selection, \
+                    odds move %, confidence, and whether the movement direction proved correct on \
+                    the next poll), newest first. Use this for market-context before deciding how \
+                    much weight to give a new signal. Read-only, no side effects."
+                    .to_owned(),
+                parameters,
+            })
+            .unwrap_or_else(|e| {
+                warn!("GetRecentSignalsInput schema generation failed: {e}");
+                ToolDefinition {
+                    name: Self::NAME.to_owned(),
+                    description: "get_recent_signals (schema unavailable)".to_owned(),
+                    parameters: serde_json::json!({}),
+                }
+            })
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let limit = args.limit.unwrap_or(20).min(200).to_string();
+        let mut query = vec![("limit", limit)];
+        if let Some(fixture_id) = args.fixture_id {
+            query.push(("fixture_id", fixture_id.to_string()));
+        }
+        get_desk_json(&self.http, &self.api_base, &self.token, "/api/signals", &query).await
+    }
+}
+
+// ── GetRecentSettlements ────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetRecentSettlementsInput {
+    /// Restrict to one agent's settlements. Omit to see all agents.
+    pub agent_id: Option<String>,
+    /// Restrict to one TxLINE fixture. Omit to see settlements across all fixtures.
+    pub fixture_id: Option<u64>,
+    /// Maximum rows to return (default 20, capped at 200).
+    pub limit: Option<u32>,
+}
+
+/// Recent settlement outcomes (win/loss, PnL) for arena positions, newest first.
+pub struct GetRecentSettlements {
+    pub http: reqwest::Client,
+    pub api_base: String,
+    token: std::sync::Arc<str>,
+}
+
+impl GetRecentSettlements {
+    pub fn new(api_base: String, token: String) -> Self {
+        Self { http: reqwest::Client::new(), api_base, token: token.into() }
+    }
+}
+
+impl Tool for GetRecentSettlements {
+    const NAME: &'static str = "get_recent_settlements";
+
+    type Error = ToolCallError;
+    type Args = GetRecentSettlementsInput;
+    type Output = serde_json::Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        serde_json::to_value(schemars::schema_for!(GetRecentSettlementsInput))
+            .map(|parameters| ToolDefinition {
+                name: Self::NAME.to_owned(),
+                description: "List recent settlement records (win/loss result, PnL in units, odds \
+                    at entry) for arena positions, newest first, optionally filtered by agent or \
+                    fixture. Read-only, no side effects."
+                    .to_owned(),
+                parameters,
+            })
+            .unwrap_or_else(|e| {
+                warn!("GetRecentSettlementsInput schema generation failed: {e}");
+                ToolDefinition {
+                    name: Self::NAME.to_owned(),
+                    description: "get_recent_settlements (schema unavailable)".to_owned(),
+                    parameters: serde_json::json!({}),
+                }
+            })
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let limit = args.limit.unwrap_or(20).min(200).to_string();
+        let mut query = vec![("limit", limit)];
+        if let Some(agent_id) = &args.agent_id {
+            query.push(("agent_id", agent_id.clone()));
+        }
+        if let Some(fixture_id) = args.fixture_id {
+            query.push(("fixture_id", fixture_id.to_string()));
+        }
+        get_desk_json(&self.http, &self.api_base, &self.token, "/api/settlements", &query).await
+    }
+}
+
+// ── GetToolCallHistory ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetToolCallHistoryInput {
+    /// Restrict to one agent run. Omit to see tool calls across all runs.
+    pub run_id: Option<String>,
+    /// Maximum rows to return (default 20, capped at 200).
+    pub limit: Option<u32>,
+}
+
+/// Audit log of tool calls other agent rounds actually made (and their
+/// outcome), oldest first within the selected window — useful for a
+/// reflection pass to see what was tried, not just what was concluded.
+pub struct GetToolCallHistory {
+    pub http: reqwest::Client,
+    pub api_base: String,
+    token: std::sync::Arc<str>,
+}
+
+impl GetToolCallHistory {
+    pub fn new(api_base: String, token: String) -> Self {
+        Self { http: reqwest::Client::new(), api_base, token: token.into() }
+    }
+}
+
+impl Tool for GetToolCallHistory {
+    const NAME: &'static str = "get_tool_call_history";
+
+    type Error = ToolCallError;
+    type Args = GetToolCallHistoryInput;
+    type Output = serde_json::Value;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        serde_json::to_value(schemars::schema_for!(GetToolCallHistoryInput))
+            .map(|parameters| ToolDefinition {
+                name: Self::NAME.to_owned(),
+                description: "List the tool-call audit log (tool name, arguments, result, status) \
+                    for past agent rounds, optionally filtered to one run. Use this to see what \
+                    was actually tried and found before, not just the final conclusion. \
+                    Read-only, no side effects."
+                    .to_owned(),
+                parameters,
+            })
+            .unwrap_or_else(|e| {
+                warn!("GetToolCallHistoryInput schema generation failed: {e}");
+                ToolDefinition {
+                    name: Self::NAME.to_owned(),
+                    description: "get_tool_call_history (schema unavailable)".to_owned(),
+                    parameters: serde_json::json!({}),
+                }
+            })
+    }
+
+    async fn call(&self, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let limit = args.limit.unwrap_or(20).min(200).to_string();
+        let mut query = vec![("limit", limit)];
+        if let Some(run_id) = &args.run_id {
+            query.push(("run_id", run_id.clone()));
+        }
+        get_desk_json(&self.http, &self.api_base, &self.token, "/api/tool-calls", &query).await
+    }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -733,5 +1035,48 @@ mod tests {
         assert_eq!(result["home"].as_f64().unwrap(), 0.5);
         assert_eq!(result["away"].as_f64().unwrap(), 0.5);
         assert!(result.get("draw").is_none() || result["draw"].is_null());
+    }
+
+    // ── Desk diagnostics tools: fail-fast when unconfigured ────────────────────
+    //
+    // No live server needed — an empty api_base ("no DESK_API_BASE given")
+    // must short-circuit with a clear message rather than attempting (and
+    // hanging on) a request to an empty host.
+
+    #[tokio::test]
+    async fn leaderboard_fails_fast_when_unconfigured() {
+        let tool = GetAgentLeaderboard::new(String::new(), String::new());
+        let err = tool.call(GetAgentLeaderboardInput {}).await.unwrap_err();
+        assert!(err.0.contains("not configured"));
+    }
+
+    #[tokio::test]
+    async fn recent_signals_fails_fast_when_unconfigured() {
+        let tool = GetRecentSignals::new(String::new(), String::new());
+        let err = tool
+            .call(GetRecentSignalsInput { fixture_id: None, limit: None })
+            .await
+            .unwrap_err();
+        assert!(err.0.contains("not configured"));
+    }
+
+    #[tokio::test]
+    async fn recent_settlements_fails_fast_when_unconfigured() {
+        let tool = GetRecentSettlements::new(String::new(), String::new());
+        let err = tool
+            .call(GetRecentSettlementsInput { agent_id: None, fixture_id: None, limit: None })
+            .await
+            .unwrap_err();
+        assert!(err.0.contains("not configured"));
+    }
+
+    #[tokio::test]
+    async fn tool_call_history_fails_fast_when_unconfigured() {
+        let tool = GetToolCallHistory::new(String::new(), String::new());
+        let err = tool
+            .call(GetToolCallHistoryInput { run_id: None, limit: None })
+            .await
+            .unwrap_err();
+        assert!(err.0.contains("not configured"));
     }
 }

@@ -12,9 +12,12 @@
 //! - `arena`: arena positions, signals, settlement records, safety gates.
 //! - `auth`: wallet-identity registration and profile lookup (sled-backed).
 //! - `payments`: Solana Pay payment intent create/verify/list.
+//! - `backtest`: replay a completed fixture's real TxLINE history and settle
+//!   simulated arena positions against its real final score.
 
 pub mod arena;
 pub mod auth;
+pub mod backtest;
 pub mod chain;
 pub mod config;
 pub mod coral;

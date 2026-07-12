@@ -12,10 +12,12 @@ import type { Fixture } from '../../types'
 interface Props {
   disabled: boolean
   selectedFixture?: Fixture
+  /** True when the fixture board is showing a past (completed-match) day. */
+  historical?: boolean
   onSend: (text: string) => void
 }
 
-export function ChatInput({ disabled, selectedFixture, onSend }: Props) {
+export function ChatInput({ disabled, selectedFixture, historical, onSend }: Props) {
   const [draft, setDraft] = useState('')
 
   function submit(text: string) {
@@ -30,9 +32,10 @@ export function ChatInput({ disabled, selectedFixture, onSend }: Props) {
     : 'Analyze'
 
   const quickActions = [
-    { label: '🔍 Analyze', text: analyzeText, needsFixture: true },
-    { label: '⚖️ Verify on-chain', text: selectedFixture ? `Run a settlement round on ${selectedFixture.home} vs ${selectedFixture.away}` : '', needsFixture: true },
-    { label: '📊 Score', text: "What's the current arena score?", needsFixture: false },
+    { label: '🔍 Analyze', text: analyzeText, needsFixture: true, needsHistorical: false },
+    { label: '⚖️ Verify on-chain', text: selectedFixture ? `Run a settlement round on ${selectedFixture.home} vs ${selectedFixture.away}` : '', needsFixture: true, needsHistorical: false },
+    { label: '📊 Score', text: "What's the current arena score?", needsFixture: false, needsHistorical: false },
+    { label: '🕰 Backtest', text: selectedFixture ? `Backtest ${selectedFixture.home} vs ${selectedFixture.away}` : '', needsFixture: true, needsHistorical: true },
   ]
 
   return (
@@ -43,7 +46,7 @@ export function ChatInput({ disabled, selectedFixture, onSend }: Props) {
             key={action.label}
             type="button"
             className="chatChip"
-            disabled={disabled || (action.needsFixture && !selectedFixture)}
+            disabled={disabled || (action.needsFixture && !selectedFixture) || (action.needsHistorical && !historical)}
             onClick={() => submit(action.text)}
           >
             {action.label}

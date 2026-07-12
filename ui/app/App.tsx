@@ -36,6 +36,7 @@ function AppShell({ onSignOut }: { onSignOut: () => void }) {
             busy={desk.chatBusy}
             busyLabel={desk.chatBusyLabel}
             selectedFixture={selectedFixture}
+            historical={desk.fixturesDayHistorical}
             onSend={(text) => void desk.sendChat(text)}
           />
           <aside className="chatRail">

@@ -30,7 +30,10 @@ const CONFIDENCE_NUDGE: f64 = 0.03;
 struct PunditVerdict {
     /// "endorse" | "challenge" | "no_bet"
     stance: String,
-    /// One-sentence justification.
+    /// 2-4 sentences of specific justification — name the actual weak point
+    /// or strength in the thesis, and cite what get_agent_leaderboard /
+    /// get_recent_signals / get_recent_settlements showed if you called them.
+    /// Not generic filler.
     reason: String,
 }
 
@@ -61,7 +64,7 @@ impl Tool for SubmitPunditVerdict {
                 description: "Submit your final verdict on the proposed wager and end the \
                     reasoning session. stance must be exactly one of \"endorse\", \"challenge\", \
                     or \"no_bet\" (use no_bet only for a severe objection, not a mild one). \
-                    Always include a one-sentence reason."
+                    Always include a 2-4 sentence reason."
                     .to_owned(),
                 parameters,
             })
@@ -86,8 +89,16 @@ doubt it (e.g. the model probability rests on neutral/default fundamentals rathe
 than real data, or the edge is small relative to how little is actually known)? \
 \n\n\
 You do not have access to live news or injury reports — reason only from what \
-you were given. You MUST call `submit_pundit_verdict` exactly once with your \
-stance and a one-sentence reason. Do not respond in plain text.";
+you were given, plus what you can look up with get_agent_leaderboard, \
+get_recent_signals, get_recent_settlements, and get_tool_call_history (past \
+performance and market context — call these before judging if it would change \
+your verdict; skip them if they report the diagnostics API is unavailable). \
+You MUST call `submit_pundit_verdict` exactly once with your stance and a \
+2-4 sentence reason that names the actual weak point or strength in the \
+thesis and cites specific numbers from whatever you looked up (e.g. \"this \
+agent has a 38% win rate over its last 12 settled positions\" beats \"the \
+track record is weak\"). Do not pad with generic filler just to fill space. \
+Do not respond in plain text.";
 
 // ── Specialist implementation ─────────────────────────────────────────────────
 
@@ -172,11 +183,31 @@ async fn run_venice_verdict(wager: &Wager) -> PunditVerdict {
         }
     };
 
-    let model = rig_venice::model_name();
+    // Empty when the operator hasn't turned on the desk diagnostics server
+    // (DESK_AXUM_ENABLED, off by default) or this container wasn't given the
+    // option — every Get* tool below fails fast with a clear "not
+    // configured" message in that case rather than erroring the whole loop
+    // (see crates/rig-venice/src/tools.rs's get_desk_json).
+    let desk_api_base = std::env::var("DESK_API_BASE").unwrap_or_default();
+    let desk_api_token = std::env::var("DESK_API_TOKEN").unwrap_or_default();
+
+    // Prose model (default llama-3.3-70b), not the workspace's speed-tuned
+    // `model_name()` default — see `rig_venice::DEFAULT_PROSE_MODEL`'s doc
+    // comment for why this narrative-reaction call specifically opts into a
+    // larger, more expressive model.
+    let model = rig_venice::prose_model_name();
     let agent = client
         .agent(&model)
         .preamble(SYSTEM_PREAMBLE)
+        // Raised for the 2-4 sentence reason this agent now writes (was a
+        // one-sentence cap at the default sampling settings).
+        .temperature(0.8)
+        .max_tokens(500)
         .tool(SubmitPunditVerdict)
+        .tool(rig_venice::tools::GetAgentLeaderboard::new(desk_api_base.clone(), desk_api_token.clone()))
+        .tool(rig_venice::tools::GetRecentSignals::new(desk_api_base.clone(), desk_api_token.clone()))
+        .tool(rig_venice::tools::GetRecentSettlements::new(desk_api_base.clone(), desk_api_token.clone()))
+        .tool(rig_venice::tools::GetToolCallHistory::new(desk_api_base, desk_api_token))
         .build();
 
     let prompt = format!(

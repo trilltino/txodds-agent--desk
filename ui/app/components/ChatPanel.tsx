@@ -19,6 +19,8 @@ interface Props {
   /** Latest trace summary while the agent works — shown next to the typing dots. */
   busyLabel?: string
   selectedFixture?: Fixture
+  /** True when the fixture board is showing a past (completed-match) day. */
+  historical?: boolean
   onSend: (text: string) => void
 }
 
@@ -37,6 +39,8 @@ function WelcomeMessage() {
           <strong>“What’s the current arena score?”</strong>. For past matches, use
           the <strong>◀ ▶</strong> arrows on the fixture board to browse earlier
           days, or add a time phrase like <strong>“as of yesterday 18:00”</strong>.
+          For a completed match, try <strong>“Backtest {'{team}'} vs {'{team}'}”</strong> to
+          replay its real odds history and see how Follow vs Fade would have scored.
           I’ll narrate signals, positions, and settlements here as they happen.
         </div>
       </div>
@@ -64,7 +68,7 @@ function TypingIndicator({ label }: { label?: string }) {
   )
 }
 
-export function ChatPanel({ items, busy, busyLabel, selectedFixture, onSend }: Props) {
+export function ChatPanel({ items, busy, busyLabel, selectedFixture, historical, onSend }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Follow the conversation: scroll to the newest message whenever the log
@@ -100,7 +104,7 @@ export function ChatPanel({ items, busy, busyLabel, selectedFixture, onSend }: P
         {busy && <TypingIndicator label={busyLabel} />}
       </div>
 
-      <ChatInput disabled={busy} selectedFixture={selectedFixture} onSend={onSend} />
+      <ChatInput disabled={busy} selectedFixture={selectedFixture} historical={historical} onSend={onSend} />
     </section>
   )
 }

@@ -8,7 +8,7 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, Sse};
 use axum::response::IntoResponse;
@@ -44,6 +44,8 @@ pub fn spawn_loopback(
     public_config: PublicConfig,
     token: String,
     ledger: Arc<Mutex<LedgerStore>>,
+    bind: String,
+    port: u16,
 ) -> tauri::async_runtime::JoinHandle<()> {
     // Fire-and-forget task; failure to bind diagnostics should not block the
     // desktop app from launching.
@@ -57,13 +59,20 @@ pub fn spawn_loopback(
             .route("/healthz", get(healthz))
             .route("/api/runs", get(list_runs))
             .route("/api/runs/{id}", get(get_run))
+            .route("/api/leaderboard", get(get_leaderboard))
+            .route("/api/signals", get(get_signals))
+            .route("/api/settlements", get(get_settlements))
+            .route("/api/tool-calls", get(get_tool_calls))
             .route("/events", get(events))
             .route("/rpc", post(rpc_placeholder))
             .with_state(state);
 
-        // Bind only to loopback and an OS-selected port to avoid exposing local
-        // run history or debug routes on the network.
-        let Ok(listener) = tokio::net::TcpListener::bind("127.0.0.1:0").await else {
+        // Binds to `bind:port` from config — defaults to loopback-only
+        // (127.0.0.1) so nothing changes unless an operator deliberately sets
+        // DESK_AXUM_BIND=0.0.0.0 to let a Docker-spawned CoralOS agent reach
+        // this via `host.docker.internal`. Every non-health route still
+        // requires the bearer token regardless of bind address.
+        let Ok(listener) = tokio::net::TcpListener::bind(format!("{bind}:{port}")).await else {
             return;
         };
         if let Ok(addr) = listener.local_addr() {
@@ -124,6 +133,102 @@ async fn get_run(
         }
     };
     Json(run).into_response()
+}
+
+// ── Priority-1 agentic tool routes ─────────────────────────────────────────────
+//
+// Read-only wrappers over LedgerStore, added so a Docker-spawned CoralOS
+// agent (currently: fan-pundit-agent) can research past performance before
+// narrating, via crates/rig-venice's Get* tools. Same bearer-token gate and
+// error-mapping convention as list_runs/get_run above — no new auth pattern,
+// no write access, no command execution (see rpc_placeholder).
+
+/// Per-agent leaderboard (win rate, cumulative PnL) — no filters, small and
+/// stable enough to return whole.
+async fn get_leaderboard(State(state): State<WebState>, headers: HeaderMap) -> impl IntoResponse {
+    if !authorized(&headers, &state.token) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    match state.ledger.lock() {
+        Ok(ledger) => match ledger.list_agent_leaderboard() {
+            Ok(rows) => Json(rows).into_response(),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        },
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "ledger lock poisoned").into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct SignalsQuery {
+    fixture_id: Option<i64>,
+    limit: Option<i64>,
+}
+
+async fn get_signals(
+    State(state): State<WebState>,
+    Query(q): Query<SignalsQuery>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !authorized(&headers, &state.token) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let limit = q.limit.unwrap_or(20).clamp(1, 200);
+    match state.ledger.lock() {
+        Ok(ledger) => match ledger.list_signal_records(q.fixture_id, limit) {
+            Ok(rows) => Json(rows).into_response(),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        },
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "ledger lock poisoned").into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct SettlementsQuery {
+    agent_id: Option<String>,
+    fixture_id: Option<i64>,
+    limit: Option<i64>,
+}
+
+async fn get_settlements(
+    State(state): State<WebState>,
+    Query(q): Query<SettlementsQuery>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !authorized(&headers, &state.token) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let limit = q.limit.unwrap_or(20).clamp(1, 200);
+    match state.ledger.lock() {
+        Ok(ledger) => match ledger.list_settlement_records(q.agent_id.as_deref(), q.fixture_id, limit) {
+            Ok(rows) => Json(rows).into_response(),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        },
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "ledger lock poisoned").into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct ToolCallsQuery {
+    run_id: Option<String>,
+    limit: Option<i64>,
+}
+
+async fn get_tool_calls(
+    State(state): State<WebState>,
+    Query(q): Query<ToolCallsQuery>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !authorized(&headers, &state.token) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let limit = q.limit.unwrap_or(20).clamp(1, 200);
+    match state.ledger.lock() {
+        Ok(ledger) => match ledger.list_tool_call_records(q.run_id.as_deref(), limit) {
+            Ok(rows) => Json(rows).into_response(),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        },
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "ledger lock poisoned").into_response(),
+    }
 }
 
 async fn events(State(state): State<WebState>, headers: HeaderMap) -> impl IntoResponse {

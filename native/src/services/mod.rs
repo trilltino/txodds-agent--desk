@@ -17,8 +17,12 @@
 //! - `llm`: optional Venice/OpenAI-compatible explanation client.
 //! - `proof`: proof receipt and validation simulation state.
 //! - `user_store`: sled-backed local profile KV store (public key → UserProfile).
+//! - `backtest`: arena replay engine — walks real historical TxLINE odds and
+//!   settles simulated FollowSharp/FadeSharp positions against the real final
+//!   score (ARENA-AUTONOMY-PLAN.md Priority B).
 
 pub mod agent;
+pub mod backtest;
 pub mod chain;
 pub mod coral;
 pub mod coralos;

@@ -11,6 +11,7 @@ import type { ReactNode } from 'react'
 import type { AgentRun, CoralMessage, OddsQuote } from '../../types'
 import type {
   ArenaPosition,
+  BacktestSummary,
   SettlementRecord,
   SignalRecord,
 } from '../../core/agent/types'
@@ -218,6 +219,60 @@ function RoundCard({ run }: { run: AgentRun }) {
   )
 }
 
+/**
+ * Backtest result card — simulated FollowSharp vs FadeSharp positions
+ * replayed against one completed fixture's real historical odds and real
+ * final score. Visually distinct (dashed border, "BACKTEST" badge) from
+ * RoundCard so it can never be mistaken for a live round or live-tournament
+ * result — see ARENA-AUTONOMY-PLAN.md's integrity note.
+ */
+function BacktestCard({ summary }: { summary: BacktestSummary }) {
+  const strategies: Array<{ label: string; tally: typeof summary.follow; icon: string }> = [
+    { label: 'Follow Sharp', tally: summary.follow, icon: '📈' },
+    { label: 'Fade Sharp', tally: summary.fade, icon: '📉' },
+  ]
+  return (
+    <div className="chatRoundCard chatBacktestCard">
+      <div className="chatRoundHead">
+        <span className="chatRoundTitle">
+          {summary.home} vs {summary.away} · FT {summary.finalScore}
+        </span>
+        <span className="chatRoundTrack chatBacktestBadge">🕰 backtest</span>
+      </div>
+
+      <p className="chatBacktestMeta">
+        Replayed {summary.oddsTicksProcessed.toLocaleString()} real odds ticks ·{' '}
+        {summary.signalsDetected} sharp-movement signal{summary.signalsDetected === 1 ? '' : 's'} detected
+      </p>
+
+      <div className="chatBacktestStrategies">
+        {strategies.map(({ label, tally, icon }) => (
+          <div key={tally.agentId} className="chatBacktestStrategy">
+            <span className="chatBacktestStrategyLabel">
+              {icon} {label}
+            </span>
+            <span className="chatBacktestStrategyStats">
+              {tally.positionsWon}W {tally.positionsTaken - tally.positionsWon}L
+            </span>
+            <span
+              className="chatBacktestStrategyPnl"
+              data-positive={tally.totalPnlPoints >= 0}
+            >
+              {tally.totalPnlPoints >= 0 ? '+' : ''}
+              {tally.totalPnlPoints.toFixed(2)} pts
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <p className="chatBacktestDisclaimer">
+        Simulated history, not a live result — no funds moved, positions are
+        replayed against odds and scores TxLINE already recorded.
+      </p>
+    </div>
+  )
+}
+
 // ── Coral message rendering ─────────────────────────────────────────────────────
 
 function payloadPreview(payload: unknown): string | undefined {
@@ -318,6 +373,12 @@ export function ChatMessage({ item }: { item: ChatItem }) {
       return (
         <AgentRow ts={item.ts} wide>
           <SettlementCard record={item.settlement} />
+        </AgentRow>
+      )
+    case 'backtest':
+      return (
+        <AgentRow ts={item.ts} wide>
+          <BacktestCard summary={item.summary} />
         </AgentRow>
       )
   }

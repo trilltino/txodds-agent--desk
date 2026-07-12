@@ -20,7 +20,10 @@ use rig::agent::Agent;
 use rig::completion::ToolDefinition;
 use rig::providers::openai;
 use rig::tool::Tool;
-use rig_venice::tools::{ComputeSharpMovement, FetchActiveFixtures, FetchOddsSnapshot, MovementResult};
+use rig_venice::tools::{
+    ComputeSharpMovement, FetchActiveFixtures, FetchOddsSnapshot, GetAgentLeaderboard,
+    GetRecentSignals, GetRecentSettlements, MovementResult,
+};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -29,8 +32,11 @@ use crate::txline::FixtureSummary;
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub(crate) struct SignalDecision {
-    /// One sentence (max 40 words) explaining what the movement likely means
-    /// and which side the sharp money is backing. No gambling advice.
+    /// 2-4 sentences of analysis: what the movement likely means, which side
+    /// the sharp money is backing, and — when get_agent_leaderboard /
+    /// get_recent_signals / get_recent_settlements were called — how this
+    /// compares to recent form on this market. Specific and evidence-based,
+    /// not generic filler. No gambling advice.
     rationale: String,
 }
 
@@ -62,7 +68,7 @@ impl Tool for SubmitSignalDecision {
                 name: Self::NAME.to_owned(),
                 description: "Submit your final assessment and end the reasoning session. \
                     Call this exactly once, after calling compute_sharp_movement, with your \
-                    one-sentence rationale. Do not call any other tool afterward."
+                    2-4 sentence rationale. Do not call any other tool afterward."
                     .to_owned(),
                 parameters,
             })
@@ -89,13 +95,19 @@ You MUST call the `compute_sharp_movement` tool with the odds you were given \
 to get an objective pct_change / is_sharp_move / direction / confidence \
 reading — never estimate these numbers yourself. You may also call \
 `fetch_odds_snapshot` or `fetch_active_fixtures` first if you want fresher \
-context before assessing. \
+context before assessing, and `get_agent_leaderboard` / `get_recent_signals` \
+/ `get_recent_settlements` to check how reliable recent signals on this \
+market have actually been before deciding how confident to sound (skip these \
+if they report the diagnostics API is unavailable). \
 \n\n\
 Once you have called compute_sharp_movement, you MUST call \
-`submit_signal_decision` exactly once with a one-sentence (max 40 words) \
-rationale explaining what the movement likely means and which side the \
-sharp money is backing. Do not give gambling advice. Do not respond in plain \
-text and do not call any tool after submit_signal_decision.";
+`submit_signal_decision` exactly once with a 2-4 sentence rationale: what \
+the movement likely means, which side the sharp money is backing, and — \
+when you looked up recent form — how this compares to it (e.g. \"this \
+market has shortened correctly 4 of the last 5 times\" beats \"this looks \
+sharp\"). Be specific; do not pad with generic filler just to fill space. \
+Do not give gambling advice. Do not respond in plain text and do not call \
+any tool after submit_signal_decision.";
 
 /// Build the Venice reasoning agent with the read-only TxLINE tools attached.
 ///
@@ -104,7 +116,11 @@ text and do not call any tool after submit_signal_decision.";
 /// integration left in this file.
 pub(crate) fn build_reasoning_agent(config: &Config) -> Result<VeniceAgent, String> {
     let rig_client = rig_venice::client().map_err(|e| e.to_string())?;
-    let model = rig_venice::model_name();
+    // Prose model (default llama-3.3-70b), not the workspace's speed-tuned
+    // `model_name()` default — see `rig_venice::DEFAULT_PROSE_MODEL`'s doc
+    // comment for why this narration call specifically opts into a larger,
+    // more expressive model.
+    let model = rig_venice::prose_model_name();
 
     // rig-venice's tools use `{api_base}/fixtures...`; this binary's fixtures
     // live under `{TXLINE_API_BASE}/worldcup/fixtures...`. Bake the prefix in
@@ -112,12 +128,25 @@ pub(crate) fn build_reasoning_agent(config: &Config) -> Result<VeniceAgent, Stri
     // `fetch_odds` already use, rather than silently hitting a different path.
     let tool_api_base = format!("{}/worldcup", config.api_base);
 
+    // Reputation/market-context tools (Priority 1 of AGENTIC-EXPANSION-PLAN.md).
+    // Tool-call history is deliberately omitted here — it's scoped by
+    // AgentRun.run_id, a concept this poll loop doesn't produce; leaderboard
+    // and signal/settlement history are the market-context that's actually
+    // relevant to "how much weight should a new movement get".
+    //
+    // temperature/max_tokens raised for the 2-4 sentence rationale this agent
+    // now writes (was a 40-word cap at the default sampling settings).
     Ok(rig_client
         .agent(&model)
         .preamble(SYSTEM_PREAMBLE)
+        .temperature(0.8)
+        .max_tokens(500)
         .tool(FetchOddsSnapshot::new(tool_api_base.clone(), config.api_key.clone()))
         .tool(FetchActiveFixtures::new(tool_api_base, config.api_key.clone()))
         .tool(ComputeSharpMovement { threshold_pct: config.odds_move_threshold_pct })
+        .tool(GetAgentLeaderboard::new(config.desk_api_base.clone(), config.desk_api_token.clone()))
+        .tool(GetRecentSignals::new(config.desk_api_base.clone(), config.desk_api_token.clone()))
+        .tool(GetRecentSettlements::new(config.desk_api_base.clone(), config.desk_api_token.clone()))
         .tool(SubmitSignalDecision)
         .build())
 }
@@ -294,7 +323,11 @@ mod tests {
         // vars, so there's no cross-test race on the process environment.
         std::env::set_var("VENICE_API_KEY", "test-key");
         std::env::set_var("VENICE_BASE_URL", base_url);
-        std::env::set_var("VENICE_MODEL", "kimi-k2-7-code");
+        // build_reasoning_agent now requests rig_venice::prose_model_name();
+        // the mock server ignores the requested model name entirely (it just
+        // drains the request and replays canned bodies by call order), so
+        // this only needs to be set for readers, not test correctness.
+        std::env::set_var("VENICE_PROSE_MODEL", "llama-3.3-70b");
 
         let config = Config {
             api_base: "https://txline.example.invalid/api/v1".to_owned(),
@@ -305,6 +338,8 @@ mod tests {
             max_steps: 500,
             max_tool_rounds: 6,
             signal_log_path: "unused-in-this-test.jsonl".to_owned(),
+            desk_api_base: String::new(),
+            desk_api_token: String::new(),
         };
 
         let Ok(agent) = build_reasoning_agent(&config) else {

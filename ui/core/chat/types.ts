@@ -9,6 +9,7 @@ import type { AgentRun, CoralMessage } from '../../types'
 import type {
   ArenaPosition,
   ArenaScore,
+  BacktestSummary,
   SettlementRecord,
   SignalRecord,
 } from '../agent/types'
@@ -28,6 +29,8 @@ export type ChatItem =
   | { kind: 'position'; id: string; position: ArenaPosition; ts: number }
   /** Settlement result rendered as a win/loss card. */
   | { kind: 'settlement'; id: string; settlement: SettlementRecord; ts: number }
+  /** Backtest replay result — simulated history, never a live result. */
+  | { kind: 'backtest'; id: string; summary: BacktestSummary; ts: number }
 
 /** Parse an ISO timestamp defensively — bad input sorts to "now". */
 export function toMs(iso: string): number {

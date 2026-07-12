@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use crate::config::AppConfig;
 use crate::types::{AgentRun, CoralMessage, CoralVerb};
 
-use super::protocol::{ALL_AGENTS, MATCH_INTELLIGENCE_AGENT};
+use super::protocol::{ALL_AGENTS, FAN_PUNDIT_AGENT, MATCH_INTELLIGENCE_AGENT};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -215,7 +215,7 @@ async fn create_session(client: &Client, config: &AppConfig, base: &str) -> Resu
         .bearer_auth(&config.coralos_token)
         .json(&json!({
             "agentGraphRequest": {
-                "agents": ALL_AGENTS.iter().map(|name| agent_graph_entry(name)).collect::<Vec<_>>()
+                "agents": ALL_AGENTS.iter().map(|name| agent_graph_entry(name, config)).collect::<Vec<_>>()
             },
             "namespaceProvider": {
                 "type": "create_if_not_exists",
@@ -334,7 +334,26 @@ async fn send_message(
 /// `MATCH_INTELLIGENCE_AGENT`/`USER_PROXY` resolve to the shared
 /// `idle-agent` image (see `crates/agents/idle-agent`) — a real, if trivial,
 /// coral-server-spawned container, not a fake non-spawned registration.
-fn agent_graph_entry(name: &str) -> Value {
+fn agent_graph_entry(name: &str, config: &AppConfig) -> Value {
+    let mut options = serde_json::Map::new();
+    options.insert("AGENT_NAME".to_string(), json!({ "type": "string", "value": name }));
+
+    // Only fan-pundit-agent is both LLM-driven (rig-venice) and Docker-spawned
+    // as part of this graph (see crates/agents/*/Cargo.toml — every other
+    // participant here is deterministic Rust, no LLM, nothing to research
+    // with). Give it the loopback diagnostics reach for the Get* tools in
+    // crates/rig-venice/src/tools.rs, and only when the operator has
+    // explicitly turned the diagnostics server on (`DESK_AXUM_ENABLED`) —
+    // otherwise these options are simply absent and the agent's tools no-op.
+    if name == FAN_PUNDIT_AGENT && config.axum_enabled {
+        let base = format!("http://host.docker.internal:{}", config.axum_port);
+        options.insert("DESK_API_BASE".to_string(), json!({ "type": "string", "value": base }));
+        options.insert(
+            "DESK_API_TOKEN".to_string(),
+            json!({ "type": "string", "value": config.axum_token }),
+        );
+    }
+
     json!({
         "id": {
             "name": name,
@@ -343,9 +362,7 @@ fn agent_graph_entry(name: &str) -> Value {
         },
         "name": name,
         "provider": { "type": "local", "runtime": "docker" },
-        "options": {
-            "AGENT_NAME": { "type": "string", "value": name }
-        }
+        "options": options
     })
 }
 

@@ -22,6 +22,7 @@ import type {
   ArenaPosition,
   ArenaScore,
   ArenaSession,
+  BacktestSummary,
   SettlementRecord,
   SignalRecord,
   ToolCallRecord,
@@ -246,6 +247,31 @@ export async function getArenaScoreNative(): Promise<ArenaScore> {
 /** List signals detected by sharp-movement-detector, newest first. */
 export async function listSignalRecordsNative(): Promise<SignalRecord[]> {
   return command<SignalRecord[]>('list_signal_records')
+}
+
+// ── Backtest commands ──────────────────────────────────────────────────────────
+
+/**
+ * Replay `fixtureId`'s real historical TxLINE odds (fetched hour-by-hour
+ * server-side, never the whole-fixture endpoint) and settle simulated
+ * FollowSharp/FadeSharp positions against its real final score.
+ *
+ * `home`/`away`/`kickoffTsMs` come from the caller's own fixture data — no
+ * redundant lookup happens server-side. Rejects with an error if the
+ * fixture has no final score yet (a backtest needs a completed match).
+ */
+export async function runBacktestNative(
+  fixtureId: number,
+  home: string,
+  away: string,
+  kickoffTsMs: number,
+): Promise<BacktestSummary> {
+  return command<BacktestSummary>('run_backtest', { fixtureId, home, away, kickoffTsMs })
+}
+
+/** List persisted backtest settlement rows, optionally scoped to one fixture. */
+export async function listBacktestSettlementsNative(fixtureId?: number): Promise<unknown[]> {
+  return command<unknown[]>('list_backtest_settlements', fixtureId !== undefined ? { fixtureId } : {})
 }
 
 /**

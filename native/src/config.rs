@@ -56,6 +56,16 @@ pub struct AppConfig {
     pub max_devnet_spend_sol: f64,
     pub axum_enabled: bool,
     pub axum_token: String,
+    /// Bind address for the loopback diagnostics server. Defaults to
+    /// `127.0.0.1` — unreachable from Docker containers. Set to `0.0.0.0`
+    /// (via `DESK_AXUM_BIND`) only if a Docker-spawned CoralOS participant
+    /// (e.g. fan-pundit-agent) needs to reach it via `host.docker.internal`;
+    /// the bearer token in `axum_token` is still required on every route.
+    pub axum_bind: String,
+    /// Fixed port for the diagnostics server (was OS-assigned `:0`) so it can
+    /// be handed to a Docker-spawned agent's `DESK_API_BASE` option at
+    /// session-start, before the server would otherwise report its port.
+    pub axum_port: u16,
 }
 
 // Redacted config returned to React. It exposes feature status and public
@@ -124,7 +134,16 @@ impl AppConfig {
             odds_move_trigger_pct: number_env("ODDS_MOVE_TRIGGER_PCT", 5.0),
             max_devnet_spend_sol: number_env("MAX_DEVNET_SPEND_SOL", 0.05),
             axum_enabled: bool_env("DESK_AXUM_ENABLED", false),
-            axum_token: Uuid::new_v4().to_string(),
+            // Random per-process by default (cannot be reused across
+            // launches); overridable so a standalone, non-Docker agent
+            // process (e.g. `just run-agent-sharp-movement-detector`) can be
+            // given a stable token to authenticate with over the same
+            // lifetime as one `.env`-configured dev setup.
+            axum_token: optional_env("DESK_AXUM_TOKEN").unwrap_or_else(|| Uuid::new_v4().to_string()),
+            axum_bind: env_or_default("DESK_AXUM_BIND", "127.0.0.1"),
+            axum_port: optional_env("DESK_AXUM_PORT")
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(47990),
         }
     }
 

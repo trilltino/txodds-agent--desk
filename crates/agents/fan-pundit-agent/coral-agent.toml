@@ -17,9 +17,12 @@ expression = "MIT"
 [options]
 AGENT_NAME = { type = "string", default = "fan-pundit-agent", description = "Market identity (matches the registry name)" }
 VENICE_API_KEY = { type = "string", default = "", description = "Venice AI key for the pundit's independent reasoning call" }
+VENICE_PROSE_MODEL = { type = "string", default = "llama-3.3-70b", description = "Model for the pundit's narrative verdict (prose-oriented, not the workspace's speed-tuned default — see rig_venice::DEFAULT_PROSE_MODEL)" }
 MAX_TOOL_ROUNDS = { type = "f64", default = 3, description = "Tool-call round cap for the Venice reasoning loop" }
 FP_MAX_WAIT_MS = { type = "f64", default = 30000, description = "Per-poll wait_for_mention timeout" }
 MAX_STEPS = { type = "f64", default = 100000, description = "Mentions handled before this process exits (safety bound, see agent_core::safety::StepCounter)" }
+DESK_API_BASE = { type = "string", default = "", description = "Desktop app loopback diagnostics base URL (e.g. http://host.docker.internal:47990) for the get_agent_leaderboard/get_recent_signals/get_recent_settlements/get_tool_call_history research tools. Empty disables them gracefully. Set by native's agent_graph_entry only when DESK_AXUM_ENABLED=1." }
+DESK_API_TOKEN = { type = "string", default = "", description = "Bearer token for DESK_API_BASE (matches the desktop app's per-launch axum_token)." }
 
 [runtimes.docker]
 image = "fan-pundit-agent:0.1.0"

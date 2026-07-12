@@ -305,6 +305,44 @@
 
 .chatRoundDelivery { margin: 0; font-size: 12.5px; color: var(--muted, #60706a); overflow-wrap: anywhere; }
 
+/* ── Backtest card — visually distinct from a live round result ── */
+
+.chatBacktestCard {
+  border-left-color: #9f6c00;
+  border-style: dashed;
+  background: #fffdf6;
+}
+.chatBacktestBadge {
+  color: #9f6c00;
+  background: #fff8e7;
+  border-color: #edd28a;
+}
+.chatBacktestMeta { margin: 0; font-size: 12px; color: var(--muted, #60706a); }
+
+.chatBacktestStrategies { display: grid; gap: 6px; }
+.chatBacktestStrategy {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  background: #f8faf7;
+  border: 1px solid #e4eae1;
+  border-radius: 8px;
+}
+.chatBacktestStrategyLabel { font-size: 12.5px; font-weight: 700; color: var(--ink, #13211c); }
+.chatBacktestStrategyStats { font-size: 12px; color: var(--muted, #60706a); }
+.chatBacktestStrategyPnl { font-size: 13px; font-weight: 800; }
+.chatBacktestStrategyPnl[data-positive="true"] { color: #2b8a3e; }
+.chatBacktestStrategyPnl[data-positive="false"] { color: #c92a2a; }
+
+.chatBacktestDisclaimer {
+  margin: 0;
+  font-size: 11px;
+  font-style: italic;
+  color: #9aa8a1;
+}
+
 /* ── Typing indicator ── */
 
 .agentBubble.typing {

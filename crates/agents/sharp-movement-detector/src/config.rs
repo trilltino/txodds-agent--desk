@@ -9,6 +9,13 @@ pub(crate) struct Config {
     pub(crate) max_steps: u64,
     pub(crate) max_tool_rounds: u32,
     pub(crate) signal_log_path: String,
+    /// Base URL + bearer token for the desktop app's loopback diagnostics API
+    /// (`native/src/web.rs`), if this process runs on the same host as the
+    /// desktop app. Empty when unset — the Get* research tools then fail
+    /// fast with a clear "not configured" message rather than erroring the
+    /// whole reasoning loop (see `rig_venice::tools::get_desk_json`).
+    pub(crate) desk_api_base: String,
+    pub(crate) desk_api_token: String,
 }
 
 impl Config {
@@ -26,6 +33,8 @@ impl Config {
             max_steps:               env_parse("MAX_STEPS", 500u64),
             max_tool_rounds:         env_parse("MAX_TOOL_ROUNDS", 6u32),
             signal_log_path:         env_or("SIGNAL_LOG_PATH", "sharp-signals.jsonl"),
+            desk_api_base:           env_or("DESK_API_BASE", ""),
+            desk_api_token:          env_or("DESK_API_TOKEN", ""),
         })
     }
 }

@@ -109,6 +109,38 @@ export interface ArenaPosition {
   outcome?: PositionOutcome
 }
 
+// ── Backtest types (mirrors native/src/services/backtest.rs) ─────────────────
+//
+// Deliberately a separate shape from ArenaScore/AgentLeaderboardEntry — a
+// backtest replays a completed fixture's real historical odds against the
+// real final score, but the result is simulated history, not a live
+// tournament record. Keeping the types (and the backing ledger table)
+// separate means the UI can never accidentally render backtest PnL where a
+// live score belongs. See ARENA-AUTONOMY-PLAN.md Priority B.
+
+/** Aggregate performance of one strategy within a single backtest replay. */
+export interface BacktestStrategyTally {
+  agentId: string
+  positionsTaken: number
+  positionsWon: number
+  totalPnlPoints: number
+  winRate: number
+}
+
+/** Result of replaying one completed fixture's real TxLINE odds history. */
+export interface BacktestSummary {
+  fixtureId: number
+  home: string
+  away: string
+  finalScore: string
+  oddsTicksProcessed: number
+  signalsDetected: number
+  follow: BacktestStrategyTally
+  fade: BacktestStrategyTally
+  /** Every settled simulated position, oldest first. */
+  positions: ArenaPosition[]
+}
+
 // ── Arena session types (mirrors agent-core/src/arena.rs) ─────────────────────
 
 /**

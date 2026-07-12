@@ -140,6 +140,37 @@ pub struct ArenaSessionRow {
     pub ended_at: Option<String>,
 }
 
+// ── Backtest settlement (one simulated position, replayed against history) ───
+//
+// Deliberately a separate row/table from SettlementRow/arena_settlements —
+// see the schema comment in ledger/store.rs for why backtest results must
+// never be queryable through the same commands as live-tournament results.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BacktestSettlementRow {
+    pub position_id: String,
+    pub fixture_id: i64,
+    pub fixture_home: String,
+    pub fixture_away: String,
+    pub agent_id: String,
+    /// "FollowSharp" | "FadeSharp"
+    pub strategy: String,
+    pub market_key: String,
+    pub selection: String,
+    /// "With" | "Against"
+    pub direction: String,
+    pub odds_at_entry: f64,
+    pub odds_move_pct: f64,
+    pub confidence: f64,
+    /// "win" | "loss"
+    pub result: String,
+    pub pnl_units: f64,
+    pub final_score: String,
+    pub recorded_at: String,
+    pub settled_at: String,
+}
+
 // ── Tool-call audit row ───────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
