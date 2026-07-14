@@ -281,4 +281,63 @@ mod tests {
         assert_eq!(prose_model_name(), DEFAULT_PROSE_MODEL);
         clear_all_env();
     }
+
+    /// Proves rig-core's actual multi-round tool-calling loop (not just a
+    /// plain completion) works against Groq — every real agent in this
+    /// workspace (fan-pundit-agent, sharp-movement-detector, wager_agent,
+    /// pundit_agent) depends on exactly this: `client()` handing `.agent()` a
+    /// `rig::providers::openai::Client`, then driving it through
+    /// `loop_runner::run_tool_loop`. Uses `ComputeSharpMovement` (pure, no
+    /// network) so the only real network call in this test is the Groq
+    /// completion itself.
+    ///
+    /// Ignored by default (needs a real `GROQ_API_KEY` + `LLM_PROVIDER=groq`
+    /// in the environment) — run explicitly with:
+    /// `GROQ_API_KEY=... LLM_PROVIDER=groq cargo test -p rig-venice --lib -- --ignored --nocapture live_groq_tool_calling_loop`
+    #[tokio::test]
+    #[ignore]
+    async fn live_groq_tool_calling_loop() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        if active_provider() != Provider::Groq {
+            panic!("set LLM_PROVIDER=groq and GROQ_API_KEY in the environment to run this test");
+        }
+
+        let rig_client = match client() {
+            Ok(c) => c,
+            Err(e) => panic!("groq client should build: {e}"),
+        };
+        let model = model_name();
+        let agent = rig_client
+            .agent(&model)
+            .preamble(
+                "You analyse betting odds movement. Call compute_sharp_movement exactly once \
+                 with the given numbers, then stop.",
+            )
+            .tool(tools::ComputeSharpMovement::default())
+            .build();
+
+        let outcome = match loop_runner::run_tool_loop(
+            &agent,
+            "Selection \"home\" in market \"1x2\" moved from previous odds 2.60 to current odds \
+             2.35. Call compute_sharp_movement with these numbers."
+                .to_string(),
+            "compute_sharp_movement",
+            3,
+            || {},
+        )
+        .await
+        {
+            Ok(o) => o,
+            Err(e) => panic!("tool loop should complete: {e}"),
+        };
+
+        if outcome.final_args.is_none() {
+            panic!("agent should have called compute_sharp_movement at least once");
+        }
+        let Some(result) = outcome.tool_result("compute_sharp_movement") else {
+            panic!("compute_sharp_movement's own output should be in the tool-call trace");
+        };
+        println!("groq tool-calling result: {result}");
+        assert!(result.get("is_sharp_move").is_some(), "tool result should include is_sharp_move");
+    }
 }
