@@ -51,6 +51,10 @@ pub struct AppConfig {
     pub llm_provider: String,
     pub llm_model: String,
     pub venice_api_key: Option<String>,
+    /// Groq inference key — a genuinely free fallback provider for when
+    /// Venice credits run out (see `native/src/services/llm/venice.rs` and
+    /// `crates/rig-venice`, both of which support `LLM_PROVIDER=groq`).
+    pub groq_api_key: Option<String>,
     pub llm_trace: bool,
     pub odds_move_trigger_pct: f64,
     pub max_devnet_spend_sol: f64,
@@ -137,6 +141,7 @@ impl AppConfig {
             llm_provider: env_or_default("LLM_PROVIDER", "venice"),
             llm_model: env_or_default("LLM_MODEL", "default"),
             venice_api_key: secret("VENICE_API_KEY", "venice_api_key"),
+            groq_api_key: secret("GROQ_API_KEY", "groq_api_key"),
             llm_trace: bool_env("LLM_TRACE", bool_env("TRACE", false)),
             odds_move_trigger_pct: number_env("ODDS_MOVE_TRIGGER_PCT", 5.0),
             max_devnet_spend_sol: number_env("MAX_DEVNET_SPEND_SOL", 0.05),
@@ -178,7 +183,7 @@ impl AppConfig {
             coralos_configured: self.coralos_settlement_enabled
                 && (self.coralos_bridge_url.is_some() || self.coralos_root.is_some()),
             coralos_console_enabled: self.coralos_console_enabled,
-            llm_configured: self.venice_api_key.is_some(),
+            llm_configured: self.venice_api_key.is_some() || self.groq_api_key.is_some(),
             llm_provider: self.llm_provider.clone(),
             llm_model: self.llm_model.clone(),
             axum_enabled: self.axum_enabled,

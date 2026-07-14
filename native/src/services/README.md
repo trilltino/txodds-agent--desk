@@ -27,6 +27,6 @@ Services that make real network calls are integration-tested with `#[cfg(feature
 # Unit tests only (no network)
 cargo test -p txodds-native -- services::
 
-# With integration tests (requires TXLINE_API_KEY and VENICE_API_KEY)
+# With integration tests (requires TXLINE_API_KEY and VENICE_API_KEY or GROQ_API_KEY)
 cargo test -p txodds-native --features integration-tests -- services::
 ```

@@ -6,7 +6,14 @@ Thin factory layer that points `rig-core`'s OpenAI-compatible provider at the Ve
 
 It is **not** a full provider implementation. `rig-core` already knows how to speak to any OpenAI-compatible API. This crate does two things:
 
-1. **`client()` / `model_name()`** — reads `VENICE_API_KEY` (and optional `VENICE_BASE_URL` / `VENICE_MODEL`) from the environment and hands back a ready-to-use `rig::providers::openai::Client` aimed at `api.venice.ai`. Every agent binary calls this exactly once at startup. API keys are never stored in structs that could leak into a prompt or log.
+1. **`client()` / `model_name()` / `prose_model_name()`** — reads the active provider's API key (and optional base URL / model overrides) from the environment and hands back a ready-to-use `rig::providers::openai::Client`. Every agent binary calls `client()` exactly once at startup. API keys are never stored in structs that could leak into a prompt or log.
+
+   Two providers are supported, both through the same OpenAI-compatible client — Groq is "mostly compatible with OpenAI's client libraries" by their own design, so this needed no new abstraction:
+
+   - **Venice** (default) — the original provider.
+   - **Groq** — a genuinely free fallback (`GROQ_API_KEY`, no paid tier required) for when Venice credits run out.
+
+   `active_provider()` picks Venice or Groq: `LLM_PROVIDER=venice|groq` wins if set; otherwise it auto-detects from whichever `*_API_KEY` is present, preferring Venice. Auto-detection sees *presence* of a key, not its remaining quota — if your Venice key still exists but is out of credits, set `LLM_PROVIDER=groq` explicitly (or unset `VENICE_API_KEY`) rather than relying on auto-detection.
 
 2. **`tools` module** — `rig::tool::Tool` implementations that agents share:
 
@@ -25,9 +32,17 @@ There is no kill-switch tool — this system has none; see
 
 | Variable | Required | Default |
 |----------|----------|---------|
-| `VENICE_API_KEY` | ✅ yes | — |
+| `LLM_PROVIDER` | no | auto-detected (`venice` if `VENICE_API_KEY` set, else `groq`, else `venice`) |
+| `VENICE_API_KEY` | required if provider is Venice | — |
 | `VENICE_MODEL` | no | `kimi-k2-7-code` |
+| `VENICE_PROSE_MODEL` | no | `llama-3.3-70b` |
 | `VENICE_BASE_URL` | no | `https://api.venice.ai/api/v1` |
+| `GROQ_API_KEY` | required if provider is Groq | — |
+| `GROQ_MODEL` | no | `llama-3.1-8b-instant` (free tier: 14,400 req/day) |
+| `GROQ_PROSE_MODEL` | no | `llama-3.3-70b-versatile` (free tier: 1,000 req/day) |
+| `GROQ_BASE_URL` | no | `https://api.groq.com/openai/v1` |
+
+Get a free Groq key at https://console.groq.com/keys — no card required.
 
 ## Usage (from an agent crate)
 

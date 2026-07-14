@@ -358,6 +358,21 @@ fn agent_graph_entry(name: &str, config: &AppConfig) -> Value {
                 json!({ "type": "string", "value": venice_key }),
             );
         }
+        // Groq fallback (see crates/rig-venice::active_provider) — wired the
+        // same way as VENICE_API_KEY above so a Venice outage/quota
+        // exhaustion doesn't leave this container's reasoning silently dead
+        // too; rig_venice::active_provider() picks Groq whenever
+        // LLM_PROVIDER=groq or only GROQ_API_KEY (not VENICE_API_KEY) is set.
+        if let Some(groq_key) = &config.groq_api_key {
+            options.insert(
+                "GROQ_API_KEY".to_string(),
+                json!({ "type": "string", "value": groq_key }),
+            );
+        }
+        options.insert(
+            "LLM_PROVIDER".to_string(),
+            json!({ "type": "string", "value": config.llm_provider.clone() }),
+        );
 
         // Loopback diagnostics reach for the Get* research tools in
         // crates/rig-venice/src/tools.rs, only when the operator has
