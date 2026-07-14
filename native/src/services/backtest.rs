@@ -29,6 +29,7 @@ use serde_json::Value;
 
 use crate::config::AppConfig;
 use crate::error::AppError;
+use crate::services::llm;
 use crate::services::txline::api::authenticated_get;
 use crate::types::now_iso;
 
@@ -69,6 +70,13 @@ pub struct BacktestSummary {
     /// has `outcome` populated — the replay only ever returns positions it
     /// has already settled against the fetched final score.
     pub positions: Vec<ArenaPosition>,
+    /// LLM narration of the numbers above — never a source of any figure
+    /// shown elsewhere in this struct, only prose explaining them (same
+    /// narrate-not-decide rule as `explain_decision`). `None` when no
+    /// provider is configured, the call fails, or there was nothing to
+    /// narrate (`signals_detected == 0`) — the UI already renders the full
+    /// deterministic result without it.
+    pub narrative: Option<String>,
 }
 
 /// One parsed 1X2 odds tick: a single outcome's decimal price at a moment.
@@ -180,7 +188,7 @@ pub async fn replay_fixture(
     let follow = tally("match-intelligence-backtest", Strategy::FollowSharp, &positions);
     let fade = tally("contrarian-backtest", Strategy::FadeSharp, &positions);
 
-    Ok(BacktestSummary {
+    let mut summary = BacktestSummary {
         fixture_id,
         home: home.to_string(),
         away: away.to_string(),
@@ -190,7 +198,54 @@ pub async fn replay_fixture(
         follow,
         fade,
         positions,
-    })
+        narrative: None,
+    };
+    summary.narrative = narrate_backtest(client, config, &summary).await;
+    Ok(summary)
+}
+
+/// Ask the configured LLM to narrate an already-settled backtest's numbers —
+/// never to compute or alter them (see `BacktestSummary::narrative`'s doc
+/// comment). Degrades to `None` rather than failing the backtest: no
+/// provider configured, a network/HTTP error, and "nothing happened" are all
+/// treated the same way a missing explanation is treated everywhere else in
+/// this app.
+async fn narrate_backtest(client: &Client, config: &AppConfig, summary: &BacktestSummary) -> Option<String> {
+    if summary.signals_detected == 0 {
+        // Nothing for the LLM to add over the deterministic "0 signals"
+        // already shown in the card — skip the call entirely.
+        return None;
+    }
+
+    let request = llm::LlmRequest {
+        system: [
+            "You explain an already-settled sports-betting backtest result.",
+            "Every number below is final, computed by code from real historical odds and the real final score.",
+            "Use only the supplied facts; never invent a statistic and never recommend a future bet.",
+            "Write two to three concise sentences comparing Follow Sharp against Fade Sharp on this fixture.",
+        ]
+        .join(" "),
+        user: serde_json::json!({
+            "fixture": format!("{} vs {}", summary.home, summary.away),
+            "finalScore": summary.final_score,
+            "oddsTicksProcessed": summary.odds_ticks_processed,
+            "signalsDetected": summary.signals_detected,
+            "follow": summary.follow,
+            "fade": summary.fade,
+        })
+        .to_string(),
+        // Narrative-quality call site, like fan-pundit-agent's verdict and
+        // sharp-movement-detector's signal rationale — opts into the prose
+        // model explicitly rather than the workspace's speed-tuned default.
+        model: rig_venice::prose_model_name(),
+        max_tokens: 250,
+        temperature: 0.6,
+    };
+
+    match llm::VeniceClient::new(client.clone()).complete(config, request).await {
+        Ok(response) if response.used => Some(response.text),
+        _ => None,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -474,6 +529,41 @@ mod tests {
         assert!((outcome.pnl_points - 1.0).abs() < 1e-9);
     }
 
+    #[tokio::test]
+    async fn narrate_backtest_skips_llm_call_when_no_signals_detected() {
+        // The zero-signals guard must return before touching `config` at
+        // all, so this stays deterministic and network-free regardless of
+        // whatever LLM_PROVIDER/*_API_KEY happen to be set in the ambient
+        // environment (see AppConfig::load()'s dotenv load).
+        let config = AppConfig::load();
+        let client = reqwest::Client::new();
+        let summary = BacktestSummary {
+            fixture_id: 1,
+            home: "Norway".to_string(),
+            away: "England".to_string(),
+            final_score: "1-1".to_string(),
+            odds_ticks_processed: 500,
+            signals_detected: 0,
+            follow: StrategyTally {
+                agent_id: "match-intelligence-backtest".to_string(),
+                positions_taken: 0,
+                positions_won: 0,
+                total_pnl_points: 0.0,
+                win_rate: 0.0,
+            },
+            fade: StrategyTally {
+                agent_id: "contrarian-backtest".to_string(),
+                positions_taken: 0,
+                positions_won: 0,
+                total_pnl_points: 0.0,
+                win_rate: 0.0,
+            },
+            positions: vec![],
+            narrative: None,
+        };
+        assert_eq!(narrate_backtest(&client, &config, &summary).await, None);
+    }
+
     #[test]
     fn settle_position_loss_is_minus_one() {
         let pos = settle_position(
@@ -514,6 +604,10 @@ mod tests {
         println!(
             "fade:   taken={} won={} pnl={:.2}",
             summary.fade.positions_taken, summary.fade.positions_won, summary.fade.total_pnl_points
+        );
+        println!(
+            "narrative={}",
+            summary.narrative.as_deref().unwrap_or("<none — no provider configured, or nothing to narrate>")
         );
 
         // No independently-verified ground truth for this fixture's final

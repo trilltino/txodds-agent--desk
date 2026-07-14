@@ -138,7 +138,17 @@ impl AppConfig {
             coralos_console_enabled: bool_env("CORALOS_CONSOLE_ENABLED", true),
             coralos_sidecar_path: optional_env("CORALOS_SIDECAR_PATH"),
             coralos_settlement_enabled: bool_env("CORALOS_SETTLEMENT_ENABLED", true),
-            llm_provider: env_or_default("LLM_PROVIDER", "venice"),
+            // Delegates to rig_venice::active_provider() rather than a plain
+            // env_or_default("LLM_PROVIDER", "venice") so this field agrees
+            // with every Docker-agent/in-process rig_venice call site on
+            // which provider is active when LLM_PROVIDER is left unset —
+            // both auto-detect from key presence (Venice-key-present wins,
+            // else Groq, else Venice) instead of this field silently
+            // defaulting to "venice" even when only GROQ_API_KEY is set.
+            llm_provider: match rig_venice::active_provider() {
+                rig_venice::Provider::Venice => "venice".to_string(),
+                rig_venice::Provider::Groq => "groq".to_string(),
+            },
             llm_model: env_or_default("LLM_MODEL", "default"),
             venice_api_key: secret("VENICE_API_KEY", "venice_api_key"),
             groq_api_key: secret("GROQ_API_KEY", "groq_api_key"),

@@ -139,6 +139,12 @@ export interface BacktestSummary {
   fade: BacktestStrategyTally
   /** Every settled simulated position, oldest first. */
   positions: ArenaPosition[]
+  /**
+   * LLM narration of the numbers above (never their source — see
+   * native's `narrate_backtest`). Absent when no provider is configured,
+   * the call failed, or there was nothing to narrate.
+   */
+  narrative?: string
 }
 
 // ── Arena session types (mirrors agent-core/src/arena.rs) ─────────────────────

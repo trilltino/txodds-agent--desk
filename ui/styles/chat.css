@@ -368,6 +368,13 @@
 .chatBacktestStrategyPnl[data-positive="true"] { color: #2b8a3e; }
 .chatBacktestStrategyPnl[data-positive="false"] { color: #c92a2a; }
 
+.chatBacktestNarrative {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink, #13211c);
+}
+
 .chatBacktestDisclaimer {
   margin: 0;
   font-size: 11px;

@@ -267,6 +267,8 @@ function BacktestCard({ summary }: { summary: BacktestSummary }) {
         ))}
       </div>
 
+      {summary.narrative && <p className="chatBacktestNarrative">{summary.narrative}</p>}
+
       <p className="chatBacktestDisclaimer">
         Simulated history, not a live result — no funds moved, positions are
         replayed against odds and scores TxLINE already recorded.
